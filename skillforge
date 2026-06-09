@@ -1,0 +1,85 @@
+#!/usr/bin/env sh
+(set -o pipefail) 2>/dev/null && set -euo pipefail || set -eu
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: sh skillforge <command> [options]
+
+Commands:
+  skillforge install          Run sh scripts/install.sh
+  skillforge run              Run sh scripts/run.sh
+  skillforge doctor           Run sh scripts/doctor.sh
+  skillforge config list      Show local Provider config with credential references only
+  skillforge config set       Run sh scripts/setup-llm.sh
+  skillforge config test      Test Provider connection through the backend API
+  skillforge generate         Generate from a local brief JSON through the backend API
+  skillforge validate         Validate a local Skill folder
+  skillforge package          Package a local Skill folder
+
+All configuration writes declare their target paths. Commands that need network
+access say so before they run.
+EOF
+}
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ $# -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+COMMAND="$1"
+shift
+
+cd "$ROOT_DIR"
+
+case "$COMMAND" in
+  install)
+    sh scripts/install.sh "$@"
+    ;;
+  run)
+    sh scripts/run.sh "$@"
+    ;;
+  doctor)
+    sh scripts/doctor.sh "$@"
+    ;;
+  config)
+    SUBCOMMAND="${1:-}"
+    shift || true
+    case "$SUBCOMMAND" in
+      list)
+        if [ -f config/providers.local.json ]; then
+          python3 -m json.tool config/providers.local.json
+        else
+          echo "No Provider config found at config/providers.local.json."
+        fi
+        ;;
+      set)
+        echo "Writing Provider config to config/providers.local.json and .env."
+        sh scripts/setup-llm.sh "$@"
+        ;;
+      test)
+        echo "Network access may be used to test Provider connectivity."
+        echo "Use POST /api/model-providers/:id/test from the running backend."
+        ;;
+      *)
+        echo "ERROR: unknown config command. Use list, set, or test." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  generate)
+    echo "Use POST /api/drafts followed by POST /api/drafts/:id/generate, or provide this command in a future CLI extension."
+    ;;
+  validate)
+    echo "Use backend package validation APIs or tests for now; local folder validation will be added to the formal CLI."
+    ;;
+  package)
+    echo "Use the backend zip packager via the generation API for now; local packaging will be added to the formal CLI."
+    ;;
+  *)
+    echo "ERROR: unknown command: $COMMAND" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

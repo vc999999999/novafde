@@ -1,0 +1,41 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build output
+skill-forge/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+backend/.data/artifacts/
+
+# Editor
+.vscode/
+.idea/
+*.sw?
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+config/providers.local.json

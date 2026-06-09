@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+
+RULE_PACK_VERSION = "2026.06.08"
+
+RULES = [
+    {
+        "id": "BRIEF-001",
+        "category": "brief-normalization",
+        "title": "触发意图必须明确",
+        "description": "Skill Brief 必须包含用户意图，避免 Agent 只能根据模糊摘要生成 Skill。",
+        "severity": "blocking",
+    },
+    {
+        "id": "WF-001",
+        "category": "workflow-orchestration",
+        "title": "工作流至少包含一个完整步骤",
+        "description": "Skill 必须体现可执行流程，每个步骤应包含动作、输入、输出、验证和失败处理。",
+        "severity": "blocking",
+    },
+    {
+        "id": "TRIG-001",
+        "category": "description-triggering",
+        "title": "description 必须是触发条件",
+        "description": "frontmatter.description 必须帮助 Agent 判断何时启用 Skill，不能只是摘要。",
+        "severity": "blocking",
+    },
+    {
+        "id": "IR-001",
+        "category": "skill-structure",
+        "title": "Skill IR 必填结构完整",
+        "description": "IR 必须包含 schemaVersion、skill、workflow、contextEngineering、quality 和 platforms。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PKG-001",
+        "category": "package-validation",
+        "title": "包根目录包含合法 SKILL.md",
+        "description": "渲染后的包必须包含可解析 frontmatter 的 SKILL.md。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PKG-002",
+        "category": "package-validation",
+        "title": "zip 条目不能路径穿越",
+        "description": "压缩包内不能包含绝对路径或 .. 路径片段。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PLAT-001",
+        "category": "platform-compatibility",
+        "title": "生成目标平台安装说明",
+        "description": "canonical Skill 包之外应包含各平台安装说明，避免复制三套 Skill。",
+        "severity": "warning",
+    },
+    {
+        "id": "PROVIDER-001",
+        "category": "model-provider-configuration",
+        "title": "必须配置 generation Provider",
+        "description": "生成 SkillIR 前至少需要一个启用且具备 generation 角色的 Model Provider。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PROVIDER-002",
+        "category": "protocol-compatibility",
+        "title": "Provider 协议必须受支持",
+        "description": "Provider protocol 只能是 claude 或 openai-compatible。",
+        "severity": "blocking",
+    },
+    {
+        "id": "CLI-001",
+        "category": "cli-script-safety",
+        "title": "脚本不得泄露凭据",
+        "description": "本地脚本只能写入 key 引用或空模板，不得输出或打包真实凭据。",
+        "severity": "blocking",
+    },
+    {
+        "id": "CLI-002",
+        "category": "local-installation",
+        "title": "本地脚本必须可重复执行",
+        "description": "install、run、setup、doctor 和 clean 脚本必须支持从项目根目录重复执行。",
+        "severity": "warning",
+    },
+]
