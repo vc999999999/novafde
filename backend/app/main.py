@@ -16,7 +16,6 @@ from app.models import (
     ModelProviderConfigPatch,
     ProviderTestResult,
     SkillDraft,
-    SkillDraftCreate,
     SupplementRequest,
 )
 from app.agent import SkillAgentRuntime
@@ -84,7 +83,7 @@ def create_app(
         return service.connection_status().model_dump(mode="json")
 
     @app.post("/api/drafts", response_model=SkillDraft, status_code=201)
-    def create_draft(payload: SkillDraftCreate) -> SkillDraft:
+    def create_draft(payload: dict[str, Any]) -> SkillDraft:
         return service.create_draft(payload)
 
     @app.get("/api/drafts", response_model=list[SkillDraft])

@@ -75,7 +75,7 @@ export default function PurposeStep({ draft, onUpdatePurpose }: Props) {
         </div>
       </FormGroup>
 
-      <FormGroup label="怎样算完成" required hint="提供可以判断是否完成的验收标准">
+      <FormGroup label="怎样算完成" hint="可选；不填时由 Skill Creator 推导，评测发现缺口会在生成中向你确认">
         <Textarea
           value={purpose.completionCriteria}
           onChange={(event) => onUpdatePurpose({ completionCriteria: event.target.value })}

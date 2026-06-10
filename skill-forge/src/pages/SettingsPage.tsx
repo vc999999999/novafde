@@ -175,7 +175,7 @@ function ProviderEditor({
   return (
     <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 [&>*]:space-y-1.5">
-        <div className="col-span-2">
+        <div className="md:col-span-2">
           <Label className="text-muted-foreground">Quick fill Provider</Label>
           <select
             className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
@@ -206,7 +206,7 @@ function ProviderEditor({
           <p className="text-xs text-muted-foreground mt-1 leading-snug">选择常用 Provider 后会自动填入协议、Base URL、模型和本地环境变量名。</p>
         </div>
 
-        <div className="col-span-2">
+        <div className="md:col-span-2">
           <Label className="text-muted-foreground">Provider 名称</Label>
           <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="My Claude API" />
         </div>

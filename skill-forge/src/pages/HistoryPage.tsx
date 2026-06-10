@@ -17,6 +17,10 @@ type StatusStyle = {
   dotColor: string;
 };
 
+/* Same panel style as LocalRunPage cards: subtle border + soft gradient */
+const PANEL_CARD_CLASS =
+  'bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md';
+
 const STATUS_MAP: Record<HistoryItemStatus, StatusStyle> = {
   draft: { label: '草稿', variant: 'secondary', dotColor: 'bg-text-secondary' },
   generating: { label: '生成中', variant: 'default', dotColor: 'bg-accent' },
@@ -47,10 +51,10 @@ export default function HistoryPage({
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
-      setItems(await listHistory());
+      const loaded = await listHistory();
+      setItems(loaded);
+      setError(null);
     } catch (err) {
       setError(messageFromError(err));
     } finally {
@@ -60,10 +64,11 @@ export default function HistoryPage({
 
   useEffect(() => {
     let active = true;
-
     listHistory()
-      .then((loadedItems) => {
-        if (active) setItems(loadedItems);
+      .then((loaded) => {
+        if (!active) return;
+        setItems(loaded);
+        setError(null);
       })
       .catch((err: unknown) => {
         if (active) setError(messageFromError(err));
@@ -71,7 +76,6 @@ export default function HistoryPage({
       .finally(() => {
         if (active) setLoading(false);
       });
-
     return () => {
       active = false;
     };
@@ -172,7 +176,10 @@ export default function HistoryPage({
           return (
             <Card
               key={item.id}
-              className="cursor-pointer transition-[transform,border-color] duration-180 ease-in-out hover:-translate-y-0.5 hover:border-panel-hover"
+              className={cn(
+                PANEL_CARD_CLASS,
+                'cursor-pointer transition-[transform,border-color] duration-180 ease-in-out hover:-translate-y-0.5 hover:border-panel-hover',
+              )}
             >
               <CardHeader className="pb-0">
                 <div className="flex w-full items-start justify-between gap-3">

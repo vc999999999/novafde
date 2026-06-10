@@ -13,6 +13,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -23,6 +24,11 @@ from app.models import AgentCallMetadata, ModelProviderConfig, ProviderRole, Pro
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 ModelFactory = Callable[[ModelProviderConfig, ProviderRole], Model]
+
+# Structured SkillIR outputs regularly exceed the 4096-token default that
+# pydantic-ai applies to Anthropic-protocol models; a truncated tool call
+# fails schema validation and burns every output retry.
+MAX_OUTPUT_TOKENS = int(os.environ.get("SKILLFORGE_MAX_OUTPUT_TOKENS", "16384"))
 
 
 class PydanticAgentRuntime:
@@ -50,6 +56,7 @@ class PydanticAgentRuntime:
             output_type=output_type,
             instructions=instructions,
             retries={"output": min(max(provider.retries, 1), 2), "tools": 1},
+            model_settings=ModelSettings(max_tokens=MAX_OUTPUT_TOKENS),
         )
         result = asyncio.run(agent.run(prompt))
         usage = result.usage

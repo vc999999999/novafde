@@ -129,7 +129,8 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     preview_response = client.get(f"/api/generations/{generation['id']}/preview")
     assert preview_response.status_code == 200
     preview = preview_response.json()
-    assert "SKILL.md" in preview["skillMd"]
+    assert preview["skillMd"].startswith("---\nname: product-research")
+    assert "## When to Use" in preview["skillMd"]
     assert preview["files"][0]["name"] == "product-research"
 
     validation_response = client.get(f"/api/generations/{generation['id']}/validation")
@@ -226,7 +227,7 @@ def test_generate_blocks_missing_skill_display_name(tmp_path: Path) -> None:
     )
 
 
-def test_generate_blocks_missing_required_outcome_knowledge_rules_and_pitfalls(tmp_path: Path) -> None:
+def test_generate_blocks_missing_outcome_but_knowledge_fields_only_warn(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     create_generation_provider(client)
     payload = build_draft_payload()
@@ -244,23 +245,24 @@ def test_generate_blocks_missing_required_outcome_knowledge_rules_and_pitfalls(t
     generation = generation_response.json()
     assert generation["status"] == "failed"
 
-    blocking_by_field = {
-        item["field"]: item
-        for item in generation["validation"]
-        if item["level"] == "blocking"
-    }
-    assert blocking_by_field["purpose.desiredOutcome"]["ruleId"] == "PURPOSE-002"
-    assert blocking_by_field["purpose.completionCriteria"]["ruleId"] == "PROCESS-002"
-    assert blocking_by_field["knowledge.professionalInformation"]["ruleId"] == "KNOW-001"
-    assert blocking_by_field["knowledge.mandatoryRules"]["ruleId"] == "RULE-001"
-    assert blocking_by_field["knowledge.pitfalls"]["ruleId"] == "KNOW-002"
-    assert blocking_by_field["knowledge.pitfalls"]["inputLayer"] == "required"
+    items_by_field = {item["field"]: item for item in generation["validation"]}
+    assert items_by_field["purpose.desiredOutcome"]["level"] == "blocking"
+    # Knowledge fields and completion criteria are recommended, not required.
+    assert items_by_field["purpose.completionCriteria"]["level"] == "warning"
+    assert items_by_field["knowledge.professionalInformation"]["level"] == "warning"
+    assert items_by_field["knowledge.mandatoryRules"]["level"] == "warning"
+    assert items_by_field["knowledge.pitfalls"]["level"] == "warning"
+    assert items_by_field["knowledge.pitfalls"]["inputLayer"] == "advanced"
 
 
-def test_generate_blocks_blank_pitfall_editor_rows(tmp_path: Path) -> None:
+def test_generate_proceeds_without_optional_knowledge_fields(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     create_generation_provider(client)
     payload = build_draft_payload()
+    payload["purpose"]["completionCriteria"] = ""
+    payload["knowledge"]["professionalInformation"] = []
+    payload["knowledge"]["mandatoryRules"] = []
+    # Blank pitfall editor rows are filtered out during normalization.
     payload["knowledge"]["pitfalls"] = [
         {
             "id": "blank_pitfall",
@@ -273,13 +275,9 @@ def test_generate_blocks_blank_pitfall_editor_rows(tmp_path: Path) -> None:
     draft = client.post("/api/drafts", json=payload).json()
     generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
 
-    assert generation["status"] == "failed"
-    assert any(
-        item["ruleId"] == "KNOW-002"
-        and item["field"] == "knowledge.pitfalls"
-        and item["level"] == "blocking"
-        for item in generation["validation"]
-    )
+    assert generation["status"] in {"succeeded", "degraded"}
+    assert generation["blockingIssues"] == 0
+    assert generation["downloadInfo"] is not None
 
 
 def test_supplement_is_low_priority_and_cannot_override_mandatory_rules(tmp_path: Path) -> None:

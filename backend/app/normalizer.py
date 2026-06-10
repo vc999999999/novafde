@@ -71,91 +71,107 @@ def normalize_draft(draft: SkillDraft) -> tuple[SkillBrief, list[ValidationItem]
 
 
 def validate_brief(brief: SkillBrief) -> list[ValidationItem]:
+    """Validate the normalized brief.
+
+    Only identity and intent fields block generation. Knowledge fields
+    (professional information, mandatory rules, pitfalls) and the completion
+    criteria are recommended: missing values surface as warnings, the model
+    derives what it can, and the quality loop asks the user mid-run when a
+    user-specific fact is genuinely required (awaiting_user_input).
+    """
     items: list[ValidationItem] = []
-    _required_text(
+    _check_field(
         items,
-        value=brief.displayName,
+        present=bool(brief.displayName.strip()),
+        required=True,
         item_id="brief-display-name",
         rule_id="NAME-001",
-        title="缺少 Skill 名称",
+        subject="Skill 名称",
         description="生成前必须填写用户可识别的 Skill 名称。",
         importance="名称用于草稿识别、文件夹命名和生成结果展示。",
         suggestion="填写一个简洁、明确的 Skill 名称。",
         field="displayName",
     )
-    _required_text(
+    _check_field(
         items,
-        value=brief.usage,
+        present=bool(brief.usage.strip()),
+        required=True,
         item_id="brief-purpose-usage",
         rule_id="PURPOSE-001",
-        title="缺少使用时机",
+        subject="使用时机",
         description="生成前必须说明用户什么时候需要使用这个 Skill。",
         importance="使用时机会由 Skill Creator 转换为 frontmatter description 的触发条件。",
         suggestion="说明典型任务或用户意图，例如“当产品团队需要系统化完成竞品调研时使用”。",
         field="purpose.usage",
     )
-    _required_text(
+    _check_field(
         items,
-        value=brief.desiredOutcome,
+        present=bool(brief.desiredOutcome.strip()),
+        required=True,
         item_id="brief-purpose-outcome",
         rule_id="PURPOSE-002",
-        title="缺少目标结果",
+        subject="目标结果",
         description="生成前必须说明这个 Skill 最终要得到什么结果。",
         importance="目标结果决定工作流的方向和最终产物。",
         suggestion="补充清晰、可观察的最终结果。",
         field="purpose.desiredOutcome",
     )
-    _required_list(
+    _check_field(
         items,
-        values=brief.roughProcess,
+        present=bool(brief.roughProcess),
+        required=True,
         item_id="brief-process",
         rule_id="PROCESS-001",
-        title="缺少大致执行流程",
+        subject="大致执行流程",
         description="生成前至少需要一条用户认可的大致执行流程。",
         importance="Skill Creator 会以此为业务事实，扩展为完整的 Agent 工作流。",
         suggestion="按顺序写出主要阶段，不需要填写逐步输入、输出或失败处理。",
         field="purpose.process",
     )
-    _required_text(
+    _check_field(
         items,
-        value=brief.completionCriteria,
+        present=bool(brief.completionCriteria.strip()),
+        required=False,
         item_id="brief-completion-criteria",
         rule_id="PROCESS-002",
-        title="缺少完成标准",
-        description="生成前必须说明怎样才算完成。",
-        importance="完成标准会成为工作流验证和质量门槛。",
+        subject="完成标准",
+        description="未提供完成标准，Skill Creator 会自行推导，评测发现缺口时会在生成中向你确认。",
+        importance="完成标准会成为工作流验证和质量门槛，填写后生成质量更稳定。",
         suggestion="补充可判断的验收条件。",
         field="purpose.completionCriteria",
     )
-    _required_list(
+    _check_field(
         items,
-        values=brief.professionalInformation,
+        present=bool(brief.professionalInformation),
+        required=False,
         item_id="brief-professional-information",
         rule_id="KNOW-001",
-        title="缺少专业信息",
-        description="生成前必须提供 Agent 需要知道的专业信息、业务经验或领域知识。",
-        importance="这些信息是 Skill 相对于通用 Agent 的核心增量。",
+        subject="专业信息",
+        description="未提供专业信息。纯流程型 Skill 可以不填；有领域知识时填写能显著提升质量。",
+        importance="专业信息是 Skill 相对于通用 Agent 的核心增量。",
         suggestion="补充领域概念、业务经验、内部流程或判断依据。",
         field="knowledge.professionalInformation",
     )
-    _required_list(
+    _check_field(
         items,
-        values=brief.mandatoryRules,
+        present=bool(brief.mandatoryRules),
+        required=False,
         item_id="brief-mandatory-rules",
         rule_id="RULE-001",
-        title="缺少必须遵守的规则",
-        description="生成前必须明确至少一条不可被其他输入覆盖的强制规则。",
-        importance="强制规则拥有最高优先级，并会进入 Skill 的硬性约束。",
+        subject="必须遵守的规则",
+        description="未提供强制规则。只在确有不可违反的业务约束时填写，不要为了凑数编写规则。",
+        importance="强制规则拥有最高优先级，会原样进入 Skill 的硬性约束。",
         suggestion="补充 Agent 在任何情况下都必须遵守的规则。",
         field="knowledge.mandatoryRules",
     )
-    _required_list(
+    _check_field(
         items,
-        values=brief.pitfalls,
+        present=bool(brief.pitfalls),
+        required=False,
         item_id="brief-pitfalls",
         rule_id="KNOW-002",
-        title="缺少常见错误或反例",
-        description="生成前必须由用户提供至少一个常见错误、反例或错误结果。",
+        subject="常见错误或反例",
+        description="未提供常见错误或反例。踩过坑后再补充即可，填写能帮 Skill 规避真实的错误边界。",
         importance="用户经验定义了 Skill 真正需要规避的错误边界。",
         suggestion="添加错误描述、正确做法和错误示例。",
         field="knowledge.pitfalls",
@@ -163,80 +179,45 @@ def validate_brief(brief: SkillBrief) -> list[ValidationItem]:
     return items
 
 
-def _required_text(
-    items: list[ValidationItem],
-    *,
-    value: str,
-    item_id: str,
-    rule_id: str,
-    title: str,
-    description: str,
-    importance: str,
-    suggestion: str,
-    field: str,
-) -> None:
-    _append_required_result(
-        items,
-        present=bool(value.strip()),
-        item_id=item_id,
-        rule_id=rule_id,
-        title=title,
-        description=description,
-        importance=importance,
-        suggestion=suggestion,
-        field=field,
-    )
-
-
-def _required_list(
-    items: list[ValidationItem],
-    *,
-    values: list[object],
-    item_id: str,
-    rule_id: str,
-    title: str,
-    description: str,
-    importance: str,
-    suggestion: str,
-    field: str,
-) -> None:
-    _append_required_result(
-        items,
-        present=bool(values),
-        item_id=item_id,
-        rule_id=rule_id,
-        title=title,
-        description=description,
-        importance=importance,
-        suggestion=suggestion,
-        field=field,
-    )
-
-
-def _append_required_result(
+def _check_field(
     items: list[ValidationItem],
     *,
     present: bool,
+    required: bool,
     item_id: str,
     rule_id: str,
-    title: str,
+    subject: str,
     description: str,
     importance: str,
     suggestion: str,
     field: str,
 ) -> None:
+    if present:
+        items.append(
+            ValidationItem(
+                id=f"{item_id}-pass",
+                ruleId=rule_id,
+                level="pass",
+                title=f"{subject}已提供",
+                description=f"{field} 已包含生成所需信息。",
+                importance=importance,
+                field=field,
+                inputLayer="required" if required else "advanced",
+            )
+        )
+        return
     items.append(
         ValidationItem(
-            id=f"{item_id}-pass" if present else item_id,
+            id=item_id,
             ruleId=rule_id,
-            level="pass" if present else "blocking",
-            title=f"{title.removeprefix('缺少')}已提供" if present else title,
-            description=description if not present else f"{field} 已包含生成所需信息。",
+            level="blocking" if required else "warning",
+            title=f"缺少{subject}" if required else f"建议补充{subject}",
+            description=description,
             importance=importance,
-            suggestion="" if present else suggestion,
-            blocksDownload=not present,
+            suggestion=suggestion,
+            blocksDownload=required,
             field=field,
-            inputLayer="required",
+            inputLayer="required" if required else "advanced",
         )
     )
 

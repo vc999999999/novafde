@@ -17,6 +17,7 @@ from app.models import (
     CliCommandSpec,
     GenerationResult,
     HistoryItem,
+    KnowledgeInfo,
     ModelConnectionProvider,
     ModelConnectionStatus,
     ModelProviderConfig,
@@ -24,9 +25,10 @@ from app.models import (
     ModelProviderConfigPatch,
     PreviewResponse,
     ProviderTestResult,
+    PurposeInfo,
     QualityEvaluationReport,
     SkillDraft,
-    SkillDraftCreate,
+    SupplementInfo,
     SupplementRequest,
     UserSupplement,
     ValidationResponse,
@@ -72,18 +74,18 @@ class SkillForgeService:
         self._resume_lock = threading.Lock()
         self._resuming_runs: set[str] = set()
 
-    def create_draft(self, payload: SkillDraftCreate) -> SkillDraft:
+    def create_draft(self, payload: dict[str, Any]) -> SkillDraft:
         timestamp = now_ms()
         draft = SkillDraft(
-            id=payload.id or make_id("draft"),
-            name=sanitize_skill_name(payload.name or payload.displayName),
-            displayName=payload.displayName or payload.name,
-            targetPlatforms=payload.targetPlatforms,
-            purpose=payload.purpose,
-            knowledge=payload.knowledge,
-            supplement=payload.supplement,
-            createdAt=payload.createdAt or timestamp,
-            updatedAt=payload.updatedAt or timestamp,
+            id=payload.get("id") or make_id("draft"),
+            name=sanitize_skill_name(payload.get("name") or payload.get("displayName")),
+            displayName=payload.get("displayName") or payload.get("name"),
+            targetPlatforms=payload.get("targetPlatforms", ["claude-code"]),
+            purpose=PurposeInfo.model_validate(payload.get("purpose", {})),
+            knowledge=KnowledgeInfo.model_validate(payload.get("knowledge", {})),
+            supplement=SupplementInfo.model_validate(payload.get("supplement", {})),
+            createdAt=payload.get("createdAt") or timestamp,
+            updatedAt=payload.get("updatedAt") or timestamp,
         )
         return self.storage.save_draft(draft)
 

@@ -9,7 +9,7 @@ from app.models import (
 from app.validator import validate_ir
 
 
-def test_validate_ir_blocks_incomplete_creator_steps_and_missing_mandatory_rules() -> None:
+def test_validate_ir_blocks_incomplete_creator_steps_but_not_missing_rules() -> None:
     ir = SkillIR(
         skill=SkillMeta(
             name="research",
@@ -37,4 +37,7 @@ def test_validate_ir_blocks_incomplete_creator_steps_and_missing_mandatory_rules
     issues = validate_ir(ir)
 
     blocking_rule_ids = {item.ruleId for item in issues if item.level == "blocking"}
-    assert {"WF-001", "RULE-001"}.issubset(blocking_rule_ids)
+    assert "WF-001" in blocking_rule_ids
+    # Mandatory rules are optional user input: an empty list does not block.
+    # Loss of user-provided rules is caught in evaluate_validation instead.
+    assert "RULE-001" not in blocking_rule_ids

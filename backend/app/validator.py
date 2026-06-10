@@ -116,21 +116,9 @@ def validate_ir(ir: SkillIR) -> list[ValidationItem]:
             )
         )
 
-    if not ir.quality.hardRestrictions:
-        items.append(
-            ValidationItem(
-                id="ir-mandatory-rules",
-                ruleId="RULE-001",
-                level="blocking",
-                title="IR 缺少强制规则",
-                description="Skill Creator 未保留用户提供的必须遵守规则。",
-                importance="强制规则优先级最高，不能在生成过程中丢失。",
-                suggestion="恢复 Brief 中的 mandatoryRules 并重新生成。",
-                blocksDownload=True,
-                field="quality.hardRestrictions",
-            )
-        )
-    else:
+    # Mandatory rules are optional user input. Whether user-provided rules
+    # survived generation is checked against the brief in evaluate_validation.
+    if ir.quality.hardRestrictions:
         items.append(
             ValidationItem(
                 id="ir-mandatory-rules-pass",
@@ -204,6 +192,7 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
 
     referenced_paths = [
         *ir.contextEngineering.references,
+        *(item.path for item in ir.contextEngineering.referenceFiles),
         *ir.contextEngineering.scripts,
         *ir.contextEngineering.assets,
     ]
@@ -284,27 +273,44 @@ def parse_frontmatter(markdown: str) -> dict:
     return data
 
 
+_ENGLISH_TRIGGER_PATTERNS = [
+    re.compile(r"\buse\b[^.!?]{0,80}?\bwhen\b"),
+    re.compile(r"\bwhen\s+(the\s+|a\s+|an\s+)?(user|users|you|team|developer|request)"),
+    re.compile(r"\btrigger(s|ed)?\b"),
+    re.compile(r"\buse\s+(this\s+skill\s+|it\s+)?for\b"),
+    re.compile(r"\bapplies\s+when\b"),
+]
+_CJK_TRIGGER_MARKERS = [
+    "当用户",
+    "当需要",
+    "用户需要",
+    "用户想要",
+    "用户希望",
+    "适用于",
+    "时使用",
+    "时启用",
+    "时触发",
+    "用于",
+]
+
+
 def _looks_like_trigger_description(description: str) -> bool:
+    """Accept a description that contains trigger language anywhere.
+
+    The official recommended structure is "what the skill does + when to use
+    it", so the trigger phrase is allowed to follow a summary sentence instead
+    of being forced to the start.
+    """
     text = description.strip()
     if not text:
         return False
     lowered = text.lower()
-    # English trigger patterns
-    if lowered.startswith("use when") and len(lowered.split()) >= 5:
-        return True
-    # CJK trigger patterns (Chinese/Japanese/Korean)
     has_cjk = any("一" <= ch <= "鿿" for ch in text)
-    if has_cjk and len(text) >= 10:
-        cjk_triggers = ["当用户", "适用于", "当用户需要", "当用户想要", "当用户希望", "当……时", "当...时"]
-        if any(lowered.startswith(t) for t in cjk_triggers):
-            return True
-        # Also accept if it contains trigger-like language and is substantial
-        if any(kw in lowered for kw in ["当用户", "用户需要", "用户想要", "用户希望"]):
-            return True
-    # Generic "when" pattern (case insensitive)
-    if lowered.startswith("when ") and len(lowered.split()) >= 5:
-        return True
-    return False
+    if has_cjk:
+        return len(text) >= 10 and any(marker in text for marker in _CJK_TRIGGER_MARKERS)
+    if len(lowered.split()) < 5:
+        return False
+    return any(pattern.search(lowered) for pattern in _ENGLISH_TRIGGER_PATTERNS)
 
 
 def blocking_count(items: list[ValidationItem]) -> int:
@@ -321,6 +327,34 @@ def evaluate_validation(
     brief: SkillBrief,
 ) -> tuple[list[ValidationItem], list[QualityIssue], float]:
     items = [*validate_ir(ir), *validate_rendered_package(package_root, ir)]
+    if brief.professionalInformation and not ir.agentKnowledge.unknownKnowledge:
+        items.append(
+            ValidationItem(
+                id="professional-information-lost",
+                ruleId="KNOW-001",
+                level="blocking",
+                title="用户专业信息在生成中丢失",
+                description="SkillBrief 提供了专业信息，但 Skill IR 中没有任何领域知识。",
+                importance="用户知识可以被改写和扩充，但不允许整体丢失。",
+                suggestion="把用户专业信息整理进 agentKnowledge 与 references。",
+                blocksDownload=True,
+                field="agentKnowledge.unknownKnowledge",
+            )
+        )
+    if brief.pitfalls and not ir.agentKnowledge.pitfalls:
+        items.append(
+            ValidationItem(
+                id="pitfalls-lost",
+                ruleId="KNOW-002",
+                level="blocking",
+                title="用户提供的反例在生成中丢失",
+                description="SkillBrief 提供了常见错误或反例，但 Skill IR 中没有任何 pitfall。",
+                importance="用户经验定义了 Skill 需要规避的错误边界，不允许整体丢失。",
+                suggestion="恢复或改写用户提供的 pitfalls。",
+                blocksDownload=True,
+                field="agentKnowledge.pitfalls",
+            )
+        )
     missing_rules = [
         rule for rule in brief.mandatoryRules if rule not in ir.quality.hardRestrictions
     ]

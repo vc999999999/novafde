@@ -6,6 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
+/* Same panel style as LocalRunPage cards: subtle border + soft gradient */
+const PANEL_CARD_CLASS =
+  'bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md';
+
 function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : '规则加载失败。';
 }
@@ -90,7 +94,7 @@ export default function RulesPage() {
               ['平均提分', metrics.averageScoreImprovement],
               ['补充触发率', `${metrics.supplementPromptRate}%`],
             ].map(([label, value]) => (
-              <Card key={label} className="p-4">
+              <Card key={label} className={cn(PANEL_CARD_CLASS, 'p-4')}>
                 <p className="text-xs text-muted-foreground">{label}</p>
                 <p className="mt-1 font-mono text-lg font-semibold">{value}</p>
               </Card>
@@ -102,7 +106,7 @@ export default function RulesPage() {
               <h3 className="mb-2 text-sm font-semibold">评分项均值</h3>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 {Object.entries(metrics.criterionAverageScores).map(([criterion, score]) => (
-                  <Card key={criterion} className="p-3">
+                  <Card key={criterion} className={cn(PANEL_CARD_CLASS, 'p-3')}>
                     <p className="truncate text-xs text-muted-foreground" title={criterion}>
                       {criterion}
                     </p>
@@ -118,7 +122,7 @@ export default function RulesPage() {
               <h3 className="mb-2 text-sm font-semibold">模型表现</h3>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {Object.entries(metrics.models).map(([model, modelMetrics]) => (
-                  <Card key={model} className="p-4">
+                  <Card key={model} className={cn(PANEL_CARD_CLASS, 'p-4')}>
                     <p className="truncate font-mono text-sm font-semibold" title={model}>
                       {model}
                     </p>
@@ -150,7 +154,7 @@ export default function RulesPage() {
             {rules
               .filter((rule) => rule.category === category)
               .map((rule) => (
-                <Card key={rule.id} className="py-4">
+                <Card key={rule.id} className={cn(PANEL_CARD_CLASS, 'py-4')}>
                   <CardHeader className="pb-1">
                     <div className="flex w-full items-start justify-between gap-3">
                       <CardTitle className="text-[length:var(--text-base)] font-semibold leading-tight">
@@ -186,7 +190,7 @@ export default function RulesPage() {
           <h2 className="mb-3 text-[length:var(--text-md)] font-semibold">高频易错点</h2>
           <div className="flex flex-col gap-2">
             {patterns.slice(0, 10).map((pattern) => (
-              <Card key={pattern.id} className="p-4">
+              <Card key={pattern.id} className={cn(PANEL_CARD_CLASS, 'p-4')}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{pattern.criterion}</p>

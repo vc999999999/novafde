@@ -1,6 +1,7 @@
 import FormGroup from '../FormGroup';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import ChipList from '../ChipList';
 import type { SkillDraft, KnowledgePitfall } from '../../types';
@@ -70,7 +71,7 @@ export default function KnowledgeStep({ draft, onUpdateKnowledge }: Props) {
 
   return (
     <div>
-      <FormGroup label="Agent 需要知道的专业信息" required hint="领域知识、业务经验、判断依据或内部流程">
+      <FormGroup label="Agent 需要知道的专业信息" hint="可选；纯流程型 Skill 可以不填，有领域知识时填写能显著提升质量">
         <ChipList
           items={k.professionalInformation}
           onAdd={(value) => onUpdateKnowledge({
@@ -83,7 +84,7 @@ export default function KnowledgeStep({ draft, onUpdateKnowledge }: Props) {
         />
       </FormGroup>
 
-      <FormGroup label="必须遵守的规则" required hint="这些规则拥有最高优先级，补充说明和 Agent 都不能覆盖">
+      <FormGroup label="必须遵守的规则" hint="可选；只在确有不可违反的业务约束时填写，规则拥有最高优先级且不能被覆盖">
         <ChipList
           items={k.mandatoryRules}
           onAdd={(value) => onUpdateKnowledge({ mandatoryRules: [...k.mandatoryRules, value] })}
@@ -100,14 +101,17 @@ export default function KnowledgeStep({ draft, onUpdateKnowledge }: Props) {
         </AlertDescription>
       </Alert>
 
-      <div className="flex justify-between items-center mb-3">
-        <p className="text-[11px] tracking-widest uppercase text-muted-foreground m-0 mb-2">常见错误或反例 *</p>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <Label>常见错误或反例</Label>
         <Button variant="outline" size="sm" onClick={addPitfall} type="button">添加一项</Button>
       </div>
+      <p className="mb-2 text-xs leading-snug text-muted-foreground">
+        可选；踩过坑后再补充也不迟，填写能帮 Skill 规避真实的错误边界
+      </p>
 
       {k.pitfalls.length === 0 && (
         <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">
-          由你说明常见错误或反例，Skill Creator 不会替你猜测
+          还没有添加反例，点击「添加一项」补充
         </div>
       )}
 

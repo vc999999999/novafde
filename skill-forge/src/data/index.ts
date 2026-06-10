@@ -77,21 +77,13 @@ export const STEP_COMPLETION_WEIGHTS: Record<StepKey, (draft: SkillDraft) => num
   },
   purpose: (draft) => {
     let score = 0;
-    if (draft.purpose.usage.trim()) score += 20;
-    if (draft.purpose.desiredOutcome.trim()) score += 20;
-    if (draft.purpose.process.some((item) => item.trim())) score += 30;
-    if (draft.purpose.completionCriteria.trim()) score += 30;
+    if (draft.purpose.usage.trim()) score += 30;
+    if (draft.purpose.desiredOutcome.trim()) score += 30;
+    if (draft.purpose.process.some((item) => item.trim())) score += 40;
     return score;
   },
-  knowledge: (draft) => {
-    let score = 0;
-    if (draft.knowledge.professionalInformation.length > 0) score += 34;
-    if (draft.knowledge.mandatoryRules.length > 0) score += 33;
-    if (draft.knowledge.pitfalls.some((pitfall) =>
-      pitfall.description.trim() && pitfall.goodExample.trim() && pitfall.badExample.trim()
-    )) score += 33;
-    return score;
-  },
+  // 知识步骤全部为可选推荐项，不计入必填完成度。
+  knowledge: () => 100,
   supplement: () => 100,
 };
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from app.models import FileNode, SkillIR
+from app.models import FileNode, ReferenceFile, SkillIR
 from app.utils import ensure_safe_relative_path, format_size
 
 
@@ -17,13 +17,19 @@ def render_skill_package(ir: SkillIR, package_root: Path) -> Path:
             raise ValueError(f"Refusing to remove suspicious path: {package_root}")
         shutil.rmtree(package_root)
     skill_dir = package_root / ir.skill.name
-    (skill_dir / "references").mkdir(parents=True, exist_ok=True)
-    (skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
-    (skill_dir / "assets").mkdir(parents=True, exist_ok=True)
+    skill_dir.mkdir(parents=True, exist_ok=True)
 
     _write_skill_md(skill_dir / "SKILL.md", ir)
+    authored_paths: set[str] = set()
+    for reference_file in ir.contextEngineering.referenceFiles:
+        safe_path = ensure_safe_relative_path(reference_file.path)
+        authored_paths.add(safe_path)
+        _write_authored_reference(skill_dir / safe_path, reference_file, ir)
     for relative_path in ir.contextEngineering.references:
-        _write_reference(skill_dir / ensure_safe_relative_path(relative_path), ir)
+        safe_path = ensure_safe_relative_path(relative_path)
+        if safe_path in authored_paths:
+            continue
+        _write_reference(skill_dir / safe_path, ir)
     for relative_path in ir.contextEngineering.scripts:
         _write_script_readme(skill_dir / ensure_safe_relative_path(relative_path))
     for relative_path in ir.contextEngineering.assets:
@@ -58,15 +64,17 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         "",
         f"# {ir.skill.name}",
         "",
-        "## SKILL.md Scope",
-        "",
-        "This SKILL.md contains the core trigger, workflow, context navigation, and validation rules for the Skill package.",
-        "",
-        "## When to Use",
-        "",
-        ir.skill.description,
-        "",
     ]
+    if ir.skill.overview.strip():
+        lines.extend([ir.skill.overview.strip(), ""])
+    lines.extend(
+        [
+            "## When to Use",
+            "",
+            ir.skill.description,
+            "",
+        ]
+    )
 
     if ir.quality.hardRestrictions:
         lines.extend(["## Mandatory Rules", ""])
@@ -98,17 +106,30 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
     lines.extend(["## Context Loading", ""])
     for assumption in ir.contextEngineering.filesystemAssumptions:
         lines.append(f"- {assumption}")
-    if ir.contextEngineering.references:
-        lines.append("- Load `references/domain-knowledge.md` when domain rules, examples, or pitfalls are needed.")
+    authored_paths = {item.path for item in ir.contextEngineering.referenceFiles}
+    for reference_file in ir.contextEngineering.referenceFiles:
+        if reference_file.purpose.strip():
+            lines.append(f"- Load `{reference_file.path}` when: {reference_file.purpose.strip()}")
+        else:
+            lines.append(f"- Load `{reference_file.path}` when its domain knowledge is needed.")
+    for relative_path in ir.contextEngineering.references:
+        if relative_path in authored_paths:
+            continue
+        lines.append(f"- Load `{relative_path}` when domain rules, examples, or pitfalls are needed.")
     if ir.contextEngineering.scripts:
         lines.append("- Scripts are optional helpers and must be reviewed before execution.")
     if ir.contextEngineering.assets:
         lines.append("- Assets contain templates or examples referenced by the workflow.")
     lines.append("")
 
-    if ir.agentKnowledge.unknownKnowledge:
+    reference_paths = [
+        *(item.path for item in ir.contextEngineering.referenceFiles),
+        *(path for path in ir.contextEngineering.references if path not in authored_paths),
+    ]
+    if ir.agentKnowledge.unknownKnowledge and reference_paths:
         lines.extend(["## Domain Knowledge", ""])
-        lines.append("Detailed domain knowledge is stored in `references/domain-knowledge.md`.")
+        joined = ", ".join(f"`{path}`" for path in reference_paths)
+        lines.append(f"Detailed domain knowledge is stored in {joined}.")
         lines.append("")
 
     if ir.agentKnowledge.relatedSkills:
@@ -128,16 +149,30 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
             )
         lines.append("")
 
-    lines.extend(["## Verification Checklist", ""])
-    checklist = ir.quality.validationChecklist if ir.quality.validationChecklist is not None else ir.workflow.verification
-    for item in checklist:
-        lines.append(f"- {item}")
-    lines.append("")
+    checklist = ir.quality.validationChecklist or ir.workflow.verification
+    if checklist:
+        lines.extend(["## Verification Checklist", ""])
+        lines.extend(f"- {item}" for item in checklist)
+        lines.append("")
 
     lines.extend(["## Platform Notes", ""])
     lines.append("Use the generated files under `install/` for platform-specific installation paths.")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_authored_reference(path: Path, reference_file: ReferenceFile, ir: SkillIR) -> None:
+    content = reference_file.content.strip()
+    if not content:
+        # The model declared the file but wrote no content; fall back to the
+        # deterministic digest of user-supplied knowledge so the path resolves.
+        _write_reference(path, ir)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not content.startswith("#"):
+        title = reference_file.purpose.strip() or path.stem.replace("-", " ").title()
+        content = f"# {title}\n\n{content}"
+    path.write_text(content + "\n", encoding="utf-8")
 
 
 def _write_reference(path: Path, ir: SkillIR) -> None:

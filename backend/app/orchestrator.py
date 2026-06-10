@@ -238,6 +238,7 @@ class QualityOrchestrator:
             current_round=next_round,
             provider=repair_provider,
         )
+        rendered_skill_md, rendered_files = _rendered_artifacts(best_attempt)
         try:
             (repaired, metadata), repair_provider = self._call_with_provider_fallback(
                 generation,
@@ -252,6 +253,8 @@ class QualityOrchestrator:
                     locked_paths=_locked_paths(),
                     round_number=next_round,
                     provider=provider,
+                    rendered_skill_md=rendered_skill_md,
+                    rendered_files=rendered_files,
                 ),
             )
         except Exception as exc:
@@ -384,7 +387,13 @@ class QualityOrchestrator:
                     "REPAIR_PROVIDER_MISSING",
                     "缺少修复模型 Provider。",
                 )
-            best_ir = self._best_ir(generation.id, default_ir=current_ir)
+            best_attempt = self._best_attempt(generation.id)
+            best_ir = (
+                SkillIR.model_validate(best_attempt.skillIR)
+                if best_attempt is not None
+                else current_ir
+            )
+            rendered_skill_md, rendered_files = _rendered_artifacts(best_attempt or attempt)
             self._transition(
                 generation,
                 f"repairing_round_{next_round}",
@@ -407,6 +416,8 @@ class QualityOrchestrator:
                         locked_paths=_locked_paths(),
                         round_number=next_round,
                         provider=provider,
+                        rendered_skill_md=rendered_skill_md,
+                        rendered_files=rendered_files,
                     ),
                 )
             except Exception as exc:
@@ -886,16 +897,16 @@ class QualityOrchestrator:
             return "max_run_duration_seconds"
         return None
 
-    def _best_ir(self, run_id: str, default_ir: SkillIR) -> SkillIR:
+    def _best_attempt(self, run_id: str) -> GenerationAttempt | None:
         attempts = self.storage.list_attempts(run_id)
         reports = {
             item.attemptId: item
             for item in self.storage.list_quality_reports(run_id)
         }
         try:
-            return SkillIR.model_validate(select_best_attempt(attempts, reports).skillIR)
+            return select_best_attempt(attempts, reports)
         except ValueError:
-            return default_ir
+            return None
 
     def _should_stop_for_stagnation(self, run_id: str) -> bool:
         attempts = self.storage.list_attempts(run_id)
@@ -1147,16 +1158,29 @@ def _allowed_paths(issues: list[QualityIssue]) -> list[str]:
 
 
 def _locked_paths() -> list[str]:
+    # User knowledge fields (unknownKnowledge, pitfalls, objective, ...) are
+    # intentionally not locked: the model may rephrase and expand them, while
+    # the validator and restore_authoritative_facts guarantee nothing is lost.
     return [
         "skill.name",
         "skill.language",
-        "workflow.objective",
         "quality.hardRestrictions",
         "platforms.targets",
-        "agentKnowledge.unknownKnowledge",
-        "agentKnowledge.pitfalls",
-        "agentKnowledge.relatedSkills",
     ]
+
+
+def _rendered_artifacts(attempt: GenerationAttempt | None) -> tuple[str, list[str]]:
+    if attempt is None:
+        return "", []
+    rendered_files = sorted(attempt.fileHashes)
+    try:
+        ir = SkillIR.model_validate(attempt.skillIR)
+        skill_md = (
+            Path(attempt.renderedPath) / ir.skill.name / "SKILL.md"
+        ).read_text(encoding="utf-8")
+    except Exception:
+        skill_md = ""
+    return skill_md, rendered_files
 
 
 def _redact_brief(brief: SkillBrief) -> SkillBrief:

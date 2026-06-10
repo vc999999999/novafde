@@ -38,8 +38,8 @@ const TERMINAL_STATUSES = new Set(['succeeded', 'degraded', 'interrupted', 'fail
 
 const STEP_DESCRIPTIONS: Record<number, string> = {
   0: '填写 Skill 名称并选择目标平台',
-  1: '说明使用时机、目标结果、大致流程和完成标准',
-  2: '提供专业信息、强制规则、常见错误和协同 Skill',
+  1: '说明使用时机、目标结果和大致流程；完成标准可选',
+  2: '本步全部可选：补充专业信息、强制规则、常见错误和协同 Skill 能提升生成质量',
   3: '自由补充背景或偏好，也可以直接留空',
 };
 
@@ -76,14 +76,18 @@ export default function CreatePage({
     Boolean(resumeGenerationId),
   );
   const resumePending = useRef(false);
+  const [prevResumeId, setPrevResumeId] = useState(resumeGenerationId);
 
-  useEffect(() => {
-    if (resumeGenerationId && resumeGenerationId !== generationId) {
+  // Adjust state during render when the resume target changes (React-recommended
+  // alternative to syncing props into state inside an effect).
+  if (resumeGenerationId !== prevResumeId) {
+    setPrevResumeId(resumeGenerationId);
+    if (resumeGenerationId) {
       setGenerationId(resumeGenerationId);
       setPhase('generating');
       setPollingEnabled(true);
     }
-  }, [resumeGenerationId]);
+  }
 
   const steps = STEP_KEYS.map((key) => ({ key, label: STEP_LABELS[key] }));
   const completions = STEP_KEYS.map((key) => STEP_COMPLETION_WEIGHTS[key](draft));
@@ -308,7 +312,7 @@ export default function CreatePage({
 
           <div className="top-7 flex flex-col gap-3 self-stretch lg:sticky">
             <Card className="border-panel-border bg-panel p-4 shadow-md">
-              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">信息完整度</p>
+              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">必填完整度</p>
               <div className="mt-2 flex flex-col gap-2">
                 {STEP_KEYS.map((key, index) => (
                   <div key={key} className="flex items-center gap-2">

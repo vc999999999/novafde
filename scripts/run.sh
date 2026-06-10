@@ -20,6 +20,13 @@ fi
 cd "$ROOT_DIR"
 mkdir -p logs
 
+# Load environment variables (e.g. provider API keys) from the project .env.
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  . "$ROOT_DIR/.env"
+  set +a
+fi
+
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 

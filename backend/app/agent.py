@@ -45,6 +45,8 @@ class SkillAgentRuntime(Protocol):
         locked_paths: list[str],
         round_number: int,
         provider: ModelProviderConfig,
+        rendered_skill_md: str = "",
+        rendered_files: list[str] | None = None,
     ) -> tuple[RepairAgentResult, AgentCallMetadata]:
         ...
 
@@ -98,6 +100,8 @@ class PydanticSkillAgents:
         locked_paths: list[str],
         round_number: int,
         provider: ModelProviderConfig,
+        rendered_skill_md: str = "",
+        rendered_files: list[str] | None = None,
     ) -> tuple[RepairAgentResult, AgentCallMetadata]:
         payload = {
             "round": round_number,
@@ -105,6 +109,8 @@ class PydanticSkillAgents:
             "originalSkillIR": original_ir.model_dump(mode="json"),
             "currentSkillIR": current_ir.model_dump(mode="json"),
             "bestSkillIR": best_ir.model_dump(mode="json"),
+            "renderedSkillMd": rendered_skill_md,
+            "renderedFiles": rendered_files or [],
             "issues": [issue.model_dump(mode="json") for issue in issues],
             "allowedPaths": allowed_paths,
             "lockedPaths": locked_paths,
@@ -171,31 +177,54 @@ class PydanticSkillAgents:
 
 
 def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
+    """Enforce identity facts and guarantee user-supplied facts survive generation.
+
+    The model is allowed to rephrase, reorganize, and expand user knowledge.
+    Identity fields stay authoritative, every mandatory rule stays verbatim,
+    and fields the model dropped entirely fall back to the original brief so
+    user facts are never silently lost. Coverage beyond this deterministic
+    floor is enforced by the validator instead of verbatim overwrites.
+    """
     restored = ir.model_copy(deep=True)
     restored.skill.name = brief.skillName
     restored.skill.language = brief.outputLanguage
-    restored.workflow.objective = brief.desiredOutcome
-    restored.agentKnowledge.unknownKnowledge = list(brief.professionalInformation)
-    restored.agentKnowledge.pitfalls = [item.model_copy(deep=True) for item in brief.pitfalls]
-    restored.agentKnowledge.relatedSkills = list(brief.relatedSkills)
-    restored.agentKnowledge.supplementalContext = brief.supplementalContext
-    restored.quality.hardRestrictions = list(brief.mandatoryRules)
     restored.platforms.targets = list(brief.targetPlatforms)
-    if brief.specialCases and brief.specialCases not in restored.workflow.decisionPoints:
+    model_rules = [
+        rule
+        for rule in restored.quality.hardRestrictions
+        if rule not in brief.mandatoryRules
+    ]
+    restored.quality.hardRestrictions = [*brief.mandatoryRules, *model_rules]
+    if not restored.workflow.objective.strip():
+        restored.workflow.objective = brief.desiredOutcome
+    if not restored.agentKnowledge.unknownKnowledge and brief.professionalInformation:
+        restored.agentKnowledge.unknownKnowledge = list(brief.professionalInformation)
+    if not restored.agentKnowledge.pitfalls and brief.pitfalls:
+        restored.agentKnowledge.pitfalls = [item.model_copy(deep=True) for item in brief.pitfalls]
+    missing_related = [
+        skill
+        for skill in brief.relatedSkills
+        if skill not in restored.agentKnowledge.relatedSkills
+    ]
+    restored.agentKnowledge.relatedSkills = [
+        *restored.agentKnowledge.relatedSkills,
+        *missing_related,
+    ]
+    if not restored.agentKnowledge.supplementalContext.strip():
+        restored.agentKnowledge.supplementalContext = brief.supplementalContext
+    if brief.specialCases and not restored.workflow.decisionPoints:
         restored.workflow.decisionPoints.append(brief.specialCases)
-    restored.contextEngineering.references = (
-        ["references/domain-knowledge.md"]
-        if brief.needsReferences
-        else []
+    has_reference_content = bool(
+        restored.contextEngineering.references
+        or restored.contextEngineering.referenceFiles
     )
-    restored.contextEngineering.scripts = (
-        ["scripts/README.md"]
-        if brief.needsScripts
-        else []
+    needs_references = brief.needsReferences or bool(
+        brief.professionalInformation
+        or brief.mandatoryRules
+        or brief.pitfalls
+        or brief.relatedSkills
+        or brief.supplementalContext
     )
-    restored.contextEngineering.assets = (
-        ["assets/template.json"]
-        if brief.needsAssets
-        else []
-    )
+    if needs_references and not has_reference_content:
+        restored.contextEngineering.references = ["references/domain-knowledge.md"]
     return restored

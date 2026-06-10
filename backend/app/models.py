@@ -141,8 +141,8 @@ class SkillDraft(BaseModel):
     purpose: PurposeInfo = Field(default_factory=PurposeInfo)
     knowledge: KnowledgeInfo = Field(default_factory=KnowledgeInfo)
     supplement: SupplementInfo = Field(default_factory=SupplementInfo)
-    createdAt: int
-    updatedAt: int
+    createdAt: int | None = None
+    updatedAt: int | None = None
 
     @field_validator("targetPlatforms")
     @classmethod
@@ -150,18 +150,6 @@ class SkillDraft(BaseModel):
         if not value:
             raise ValueError("targetPlatforms must not be empty")
         return value
-
-
-class SkillDraftCreate(BaseModel):
-    id: str | None = None
-    name: str = ""
-    displayName: str = ""
-    targetPlatforms: list[TargetPlatform] = Field(default_factory=lambda: ["claude-code"])
-    purpose: PurposeInfo = Field(default_factory=PurposeInfo)
-    knowledge: KnowledgeInfo = Field(default_factory=KnowledgeInfo)
-    supplement: SupplementInfo = Field(default_factory=SupplementInfo)
-    createdAt: int | None = None
-    updatedAt: int | None = None
 
 
 class SkillBrief(BaseModel):
@@ -190,6 +178,7 @@ class SkillMeta(BaseModel):
     name: str
     description: str
     language: OutputLanguage
+    overview: str = ""
 
 
 class SkillWorkflow(BaseModel):
@@ -200,9 +189,16 @@ class SkillWorkflow(BaseModel):
     verification: list[str] = Field(default_factory=list)
 
 
+class ReferenceFile(BaseModel):
+    path: str
+    purpose: str = ""
+    content: str = ""
+
+
 class ContextEngineering(BaseModel):
     filesystemAssumptions: list[str] = Field(default_factory=list)
     references: list[str] = Field(default_factory=list)
+    referenceFiles: list[ReferenceFile] = Field(default_factory=list)
     scripts: list[str] = Field(default_factory=list)
     assets: list[str] = Field(default_factory=list)
 

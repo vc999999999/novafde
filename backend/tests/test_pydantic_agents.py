@@ -119,12 +119,13 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     assert isinstance(ir, SkillIR)
     assert ir.skill.name == brief.skillName
     assert ir.skill.language == brief.outputLanguage
-    assert ir.workflow.objective == brief.desiredOutcome
+    # Model-authored objective is preserved; dropped user facts are restored.
+    assert ir.workflow.objective == "model overwrite"
     assert ir.agentKnowledge.unknownKnowledge == brief.professionalInformation
     assert ir.quality.hardRestrictions == brief.mandatoryRules
     assert ir.platforms.targets == brief.targetPlatforms
     assert metadata.providerId == "provider_test"
-    assert metadata.promptVersion == "generation-v1"
+    assert metadata.promptVersion == "generation-v2"
 
 
 def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:
