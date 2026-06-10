@@ -4,7 +4,18 @@ import json
 import sqlite3
 from pathlib import Path
 
-from app.models import GenerationResult, ModelProviderConfig, ProviderRole, ProviderTestResult, SkillDraft
+from app.models import (
+    GenerationAttempt,
+    GenerationResult,
+    ModelProviderConfig,
+    ProviderRole,
+    ProviderTestResult,
+    QualityEvaluationReport,
+    QualityIssue,
+    SkillDraft,
+    UserSupplement,
+)
+from app.utils import now_ms
 
 
 class Storage:
@@ -16,6 +27,8 @@ class Storage:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=5000")
         return connection
 
     def _init(self) -> None:
@@ -52,6 +65,118 @@ class Storage:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                  key TEXT PRIMARY KEY,
+                  value TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS generation_attempts (
+                  id TEXT PRIMARY KEY,
+                  run_id TEXT NOT NULL,
+                  round INTEGER NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(run_id) REFERENCES generations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS quality_reports (
+                  attempt_id TEXT PRIMARY KEY,
+                  run_id TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  evaluated_at INTEGER NOT NULL,
+                  FOREIGN KEY(attempt_id) REFERENCES generation_attempts(id),
+                  FOREIGN KEY(run_id) REFERENCES generations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_supplements (
+                  id TEXT PRIMARY KEY,
+                  run_id TEXT NOT NULL,
+                  issue_id TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(run_id) REFERENCES generations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS error_patterns (
+                  id TEXT PRIMARY KEY,
+                  category TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  occurrence_count INTEGER NOT NULL DEFAULT 1,
+                  updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  run_id TEXT NOT NULL,
+                  event TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(run_id) REFERENCES generations(id)
+                )
+                """
+            )
+
+    def create_generation_shell(
+        self,
+        *,
+        generation_id: str,
+        draft_id: str,
+        started_at: int,
+        max_repair_rounds: int = 3,
+        target_platforms: list[str] | None = None,
+    ) -> GenerationResult:
+        generation = GenerationResult(
+            id=generation_id,
+            draftId=draft_id,
+            status="queued",
+            currentStage="queued",
+            progress=0,
+            startedAt=started_at,
+            maxRepairRounds=max_repair_rounds,
+            targetPlatformsOverride=target_platforms,
+        )
+        return self.save_generation(generation)
+
+    def recover_interrupted_generations(self) -> int:
+        terminal = {"succeeded", "degraded", "failed", "interrupted"}
+        recovered = 0
+        with self._connect() as connection:
+            rows = connection.execute("SELECT id, payload FROM generations").fetchall()
+            for row in rows:
+                generation = GenerationResult.model_validate(
+                    _migrate_generation_payload(json.loads(row["payload"]))
+                )
+                if generation.status in terminal:
+                    continue
+                generation.status = "interrupted"
+                generation.currentStage = None
+                generation.completedAt = now_ms()
+                generation.errorMessage = "本地应用在生成完成前关闭，任务已标记为中断。"
+                generation.failureCode = "LOCAL_PROCESS_INTERRUPTED"
+                payload = json.dumps(generation.model_dump(mode="json"), ensure_ascii=False)
+                connection.execute(
+                    "UPDATE generations SET payload = ?, updated_at = ? WHERE id = ?",
+                    (payload, generation.completedAt, generation.id),
+                )
+                recovered += 1
+        return recovered
 
     def save_draft(self, draft: SkillDraft) -> SkillDraft:
         payload = json.dumps(draft.model_dump(mode="json"), ensure_ascii=False)
@@ -73,12 +198,25 @@ class Storage:
             row = connection.execute("SELECT payload FROM drafts WHERE id = ?", (draft_id,)).fetchone()
         if row is None:
             return None
-        return SkillDraft.model_validate(json.loads(row["payload"]))
+        raw_payload = json.loads(row["payload"])
+        migrated_payload = _migrate_draft_payload(raw_payload)
+        draft = SkillDraft.model_validate(migrated_payload)
+        if migrated_payload != raw_payload:
+            self.save_draft(draft)
+        return draft
 
     def list_drafts(self) -> list[SkillDraft]:
         with self._connect() as connection:
             rows = connection.execute("SELECT payload FROM drafts ORDER BY updated_at DESC").fetchall()
-        return [SkillDraft.model_validate(json.loads(row["payload"])) for row in rows]
+        drafts: list[SkillDraft] = []
+        for row in rows:
+            raw_payload = json.loads(row["payload"])
+            migrated_payload = _migrate_draft_payload(raw_payload)
+            draft = SkillDraft.model_validate(migrated_payload)
+            if migrated_payload != raw_payload:
+                self.save_draft(draft)
+            drafts.append(draft)
+        return drafts
 
     def save_generation(self, generation: GenerationResult) -> GenerationResult:
         payload = json.dumps(generation.model_dump(mode="json"), ensure_ascii=False)
@@ -100,7 +238,9 @@ class Storage:
             row = connection.execute("SELECT payload FROM generations WHERE id = ?", (generation_id,)).fetchone()
         if row is None:
             return None
-        return GenerationResult.model_validate(json.loads(row["payload"]))
+        return GenerationResult.model_validate(
+            _migrate_generation_payload(json.loads(row["payload"]))
+        )
 
     def list_generations_for_draft(self, draft_id: str) -> list[GenerationResult]:
         with self._connect() as connection:
@@ -108,7 +248,206 @@ class Storage:
                 "SELECT payload FROM generations WHERE draft_id = ? ORDER BY updated_at DESC",
                 (draft_id,),
             ).fetchall()
-        return [GenerationResult.model_validate(json.loads(row["payload"])) for row in rows]
+        return [
+            GenerationResult.model_validate(
+                _migrate_generation_payload(json.loads(row["payload"]))
+            )
+            for row in rows
+        ]
+
+    def list_generations(self) -> list[GenerationResult]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM generations ORDER BY created_at ASC"
+            ).fetchall()
+        return [
+            GenerationResult.model_validate(
+                _migrate_generation_payload(json.loads(row["payload"]))
+            )
+            for row in rows
+        ]
+
+    def save_attempt(self, attempt: GenerationAttempt) -> GenerationAttempt:
+        payload = json.dumps(attempt.model_dump(mode="json"), ensure_ascii=False)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO generation_attempts (id, run_id, round, payload, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                """,
+                (attempt.id, attempt.runId, attempt.round, payload, attempt.createdAt),
+            )
+        return attempt
+
+    def list_attempts(self, run_id: str) -> list[GenerationAttempt]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM generation_attempts WHERE run_id = ? ORDER BY round ASC, created_at ASC",
+                (run_id,),
+            ).fetchall()
+        return [GenerationAttempt.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def save_quality_report(
+        self,
+        run_id: str,
+        report: QualityEvaluationReport,
+    ) -> QualityEvaluationReport:
+        payload = json.dumps(report.model_dump(mode="json"), ensure_ascii=False)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO quality_reports (attempt_id, run_id, payload, evaluated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(attempt_id) DO UPDATE SET
+                  payload = excluded.payload,
+                  evaluated_at = excluded.evaluated_at
+                """,
+                (report.attemptId, run_id, payload, report.evaluatedAt),
+            )
+        self.record_quality_issues(report.issues, report.evaluatedAt)
+        return report
+
+    def record_quality_issues(
+        self,
+        issues: list[QualityIssue],
+        updated_at: int,
+    ) -> None:
+        with self._connect() as connection:
+            for issue in issues:
+                pattern_id = f"{issue.source}:{issue.criterion}"
+                payload = json.dumps(
+                    {
+                        "patternId": pattern_id,
+                        "source": issue.source,
+                        "criterion": issue.criterion,
+                        "severity": issue.severity,
+                        "triggerConditions": [issue.reason],
+                        "badExample": issue.evidence,
+                        "goodExample": [],
+                        "suggestedFix": issue.suggestion,
+                        "affectedSkillTypes": [],
+                        "resolutionRate": 0,
+                        "status": "observed",
+                        "version": "1.0",
+                    },
+                    ensure_ascii=False,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO error_patterns (
+                      id, category, payload, occurrence_count, updated_at
+                    )
+                    VALUES (?, ?, ?, 1, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      occurrence_count = error_patterns.occurrence_count + 1,
+                      updated_at = excluded.updated_at
+                    """,
+                    (pattern_id, issue.source, payload, updated_at),
+                )
+
+    def list_error_patterns(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, category, payload, occurrence_count, updated_at
+                FROM error_patterns
+                ORDER BY occurrence_count DESC, updated_at DESC
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "category": row["category"],
+                **json.loads(row["payload"]),
+                "occurrenceCount": row["occurrence_count"],
+                "updatedAt": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def add_run_event(
+        self,
+        run_id: str,
+        event: str,
+        payload: dict,
+        created_at: int,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO run_events (run_id, event, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (run_id, event, json.dumps(payload, ensure_ascii=False), created_at),
+            )
+
+    def list_run_events(self, run_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT event, payload, created_at
+                FROM run_events
+                WHERE run_id = ?
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [
+            {
+                "event": row["event"],
+                "payload": json.loads(row["payload"]),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def get_quality_report(self, attempt_id: str) -> QualityEvaluationReport | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM quality_reports WHERE attempt_id = ?",
+                (attempt_id,),
+            ).fetchone()
+        return QualityEvaluationReport.model_validate(json.loads(row["payload"])) if row else None
+
+    def list_quality_reports(self, run_id: str) -> list[QualityEvaluationReport]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM quality_reports WHERE run_id = ? ORDER BY evaluated_at ASC",
+                (run_id,),
+            ).fetchall()
+        return [QualityEvaluationReport.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def save_supplement(self, supplement: UserSupplement) -> UserSupplement:
+        payload = json.dumps(supplement.model_dump(mode="json"), ensure_ascii=False)
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM user_supplements WHERE run_id = ? AND issue_id = ?",
+                (supplement.runId, supplement.issueId),
+            )
+            connection.execute(
+                """
+                INSERT INTO user_supplements (id, run_id, issue_id, payload, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                """,
+                (
+                    supplement.id,
+                    supplement.runId,
+                    supplement.issueId,
+                    payload,
+                    supplement.createdAt,
+                ),
+            )
+        return supplement
+
+    def list_supplements(self, run_id: str) -> list[UserSupplement]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM user_supplements WHERE run_id = ? ORDER BY created_at ASC",
+                (run_id,),
+            ).fetchall()
+        return [UserSupplement.model_validate(json.loads(row["payload"])) for row in rows]
 
     def save_provider(self, provider: ModelProviderConfig, updated_at: int) -> ModelProviderConfig:
         payload = json.dumps(provider.model_dump(mode="json"), ensure_ascii=False)
@@ -154,3 +493,104 @@ class Storage:
             return None
         updated = provider.model_copy(update={"lastTest": result})
         return self.save_provider(updated, updated_at)
+
+    def get_setting(self, key: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def save_setting(self, key: str, value: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO app_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+
+
+def _migrate_draft_payload(payload: dict) -> dict:
+    if "purpose" in payload:
+        return payload
+
+    trigger = payload.get("trigger") or {}
+    workflow = payload.get("workflow") or {}
+    legacy_knowledge = payload.get("knowledge") or {}
+    legacy_steps = workflow.get("steps") or []
+    supplement = payload.get("supplement") or {}
+
+    process: list[str] = []
+    completion_criteria: list[str] = []
+    special_cases: list[str] = []
+    for step in legacy_steps:
+        purpose = str(step.get("purpose") or "").strip()
+        action = str(step.get("action") or "").strip()
+        if purpose and action:
+            process.append(f"{purpose}：{action}")
+        elif purpose or action:
+            process.append(purpose or action)
+        validation = str(step.get("validation") or "").strip()
+        if validation:
+            completion_criteria.append(validation)
+        failure_handling = str(step.get("failureHandling") or "").strip()
+        if failure_handling:
+            special_cases.append(failure_handling)
+
+    industry_rules = _clean_string_list(legacy_knowledge.get("industryRules"))
+    professional_information = [
+        *industry_rules,
+        *_clean_string_list(legacy_knowledge.get("internalProcesses")),
+        *_clean_string_list(legacy_knowledge.get("personalExperience")),
+    ]
+    related_skills = _clean_string_list(trigger.get("relatedTools"))
+    messages = supplement.get("messages") if isinstance(supplement, dict) else []
+    supplement_content = "\n".join(
+        str(message.get("content") or "").strip()
+        for message in messages or []
+        if isinstance(message, dict)
+        and message.get("role", "user") == "user"
+        and str(message.get("content") or "").strip()
+    )
+
+    return {
+        "id": payload.get("id"),
+        "status": "draft",
+        "name": payload.get("name", ""),
+        "displayName": payload.get("displayName", ""),
+        "targetPlatforms": payload.get("targetPlatforms") or ["claude-code"],
+        "purpose": {
+            "usage": str(trigger.get("intent") or "").strip(),
+            "desiredOutcome": str(workflow.get("objective") or "").strip(),
+            "process": process,
+            "completionCriteria": completion_criteria[0] if completion_criteria else "",
+            "specialCases": special_cases[0] if special_cases else "",
+        },
+        "knowledge": {
+            "professionalInformation": professional_information,
+            "mandatoryRules": industry_rules,
+            "pitfalls": legacy_knowledge.get("pitfalls") or [],
+            "relatedSkills": related_skills,
+        },
+        "supplement": {"content": supplement_content},
+        "createdAt": payload.get("createdAt", 0),
+        "updatedAt": payload.get("updatedAt", 0),
+    }
+
+
+def _migrate_generation_payload(payload: dict) -> dict:
+    migrated = dict(payload)
+    migrated["status"] = {
+        "idle": "queued",
+        "generating": "generating_initial_ir",
+        "validating": "running_validation_checks",
+        "success": "succeeded",
+    }.get(migrated.get("status"), migrated.get("status"))
+    return migrated
+
+
+def _clean_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]

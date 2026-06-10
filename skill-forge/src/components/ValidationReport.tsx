@@ -13,18 +13,18 @@ export default function ValidationReport({ items }: Props) {
   return (
     <div>
       <div className="flex gap-4 mb-4">
-        <div className="flex items-center gap-1.5 text-[var(--text-sm)]">
+        <div className="flex items-center gap-1.5 text-xs">
           <span className="w-2 h-2 rounded-full shrink-0 bg-success" />
           <span className="text-success">{passed} 通过</span>
         </div>
         {warnings > 0 && (
-          <div className="flex items-center gap-1.5 text-[var(--text-sm)]">
+          <div className="flex items-center gap-1.5 text-xs">
             <span className="w-2 h-2 rounded-full shrink-0 bg-warning" />
             <span className="text-warning">{warnings} 警告</span>
           </div>
         )}
         {blocking > 0 && (
-          <div className="flex items-center gap-1.5 text-[var(--text-sm)]">
+          <div className="flex items-center gap-1.5 text-xs">
             <span className="w-2 h-2 rounded-full shrink-0 bg-error" />
             <span className="text-error">{blocking} 阻塞</span>
           </div>
@@ -40,13 +40,13 @@ export default function ValidationReport({ items }: Props) {
               item.level === 'blocking' && 'bg-error',
             )} />
             <div className="flex-1 min-w-0">
-              <div className="text-[var(--text-base)] font-medium mb-0.5">
+              <div className="text-sm font-medium mb-0.5">
                 {item.title}
-                <span className="text-[var(--text-xs)] tracking-wide text-tertiary ml-2">{item.ruleId}</span>
+                <span className="text-[11px] tracking-wide text-tertiary ml-2">{item.ruleId}</span>
               </div>
-              <div className="text-[var(--text-sm)] text-muted-foreground leading-[var(--leading-normal)]">{item.description}</div>
+              <div className="text-xs text-muted-foreground leading-normal">{item.description}</div>
               {item.suggestion && (
-                <div className="text-[var(--text-sm)] text-accent mt-1">{item.suggestion}</div>
+                <div className="text-xs text-accent mt-1">{item.suggestion}</div>
               )}
             </div>
           </div>

@@ -4,13 +4,25 @@ import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from app.models import DownloadInfo, SkillIR, ValidationItem
+from app.models import DownloadInfo, QualityEvaluationReport, SkillIR, ValidationItem
 from app.utils import ensure_safe_relative_path, format_size
 
 
-def write_manifest(package_root: Path, ir: SkillIR, validation_items: list[ValidationItem]) -> Path:
+def write_manifest(
+    package_root: Path,
+    ir: SkillIR,
+    validation_items: list[ValidationItem],
+    quality_report: QualityEvaluationReport | None = None,
+    selection_reason: str | None = None,
+) -> Path:
     manifest = {
         "schemaVersion": "1.0",
+        "versions": {
+            "skillIrSchemaVersion": ir.schemaVersion,
+            "packageFormatVersion": "1.0",
+            "rendererVersion": "1.0",
+            "validationRuleSetVersion": "1.0",
+        },
         "skillName": ir.skill.name,
         "targets": ir.platforms.targets,
         "files": sorted(_relative_files(package_root)),
@@ -18,9 +30,27 @@ def write_manifest(package_root: Path, ir: SkillIR, validation_items: list[Valid
             "blockingIssues": sum(1 for item in validation_items if item.level == "blocking"),
             "warnings": sum(1 for item in validation_items if item.level == "warning"),
         },
+        "quality": (
+            {
+                "overallScore": quality_report.overallScore,
+                "validationScore": quality_report.validationScore,
+                "activationScore": quality_report.activationScore,
+                "implementationScore": quality_report.implementationScore,
+                "passedStrictGate": quality_report.passedStrictGate,
+                "passedDegradedGate": quality_report.passedDegradedGate,
+                "rubricVersion": quality_report.rubricVersion,
+                "selectionReason": selection_reason,
+            }
+            if quality_report
+            else None
+        ),
     }
     path = package_root / "package-manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (package_root / "skillforge-manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return path
 
 
@@ -33,6 +63,52 @@ def write_validation_report(package_root: Path, validation_items: list[Validatio
     path = package_root / "validation-report.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+def write_quality_report(
+    package_root: Path,
+    report: QualityEvaluationReport,
+    *,
+    degraded: bool,
+    repair_rounds: int,
+    selection_reason: str | None = None,
+) -> Path:
+    json_path = package_root / "quality-report.json"
+    json_path.write_text(
+        report.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    if not degraded:
+        return json_path
+
+    lines = [
+        "# SkillForge Quality Report",
+        "",
+        "> 本包未达到 SkillForge 高质量门槛，属于低分版本，需要人工检查。",
+        "",
+        f"- Overall Score: {report.overallScore}",
+        f"- Validation Score: {report.validationScore}",
+        f"- Activation Score: {report.activationScore}",
+        f"- Implementation Score: {report.implementationScore}",
+        f"- Repair rounds: {repair_rounds}",
+        f"- Selection reason: {selection_reason or 'highest-scoring safe candidate'}",
+        "",
+        "## Remaining Issues",
+        "",
+    ]
+    for issue in report.issues:
+        lines.extend(
+            [
+                f"### {issue.criterion}",
+                "",
+                f"- Reason: {issue.reason}",
+                f"- Suggestion: {issue.suggestion}",
+                "",
+            ]
+        )
+    markdown_path = package_root / "QUALITY_REPORT.md"
+    markdown_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    return markdown_path
 
 
 def create_zip(package_root: Path, zip_path: Path) -> None:
@@ -69,8 +145,18 @@ def validate_zip_entries(zip_path: Path) -> None:
 
 
 def _relative_files(root: Path) -> list[str]:
-    return [path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()]
+    resolved_root = root.resolve()
+    return [
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.resolve().is_relative_to(resolved_root)
+    ]
 
 
 def _relative_dirs(root: Path) -> list[str]:
-    return [path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()]
+    resolved_root = root.resolve()
+    return [
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_dir() and path.resolve().is_relative_to(resolved_root)
+    ]

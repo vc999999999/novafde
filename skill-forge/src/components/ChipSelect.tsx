@@ -21,7 +21,7 @@ export default function ChipSelect({ options, selected, onChange }: Props) {
         <button
           key={opt.value}
           className={cn(
-            'rounded-full px-3.5 py-1.5 text-[var(--text-sm)] border transition-all cursor-pointer whitespace-nowrap',
+            'rounded-full px-3.5 py-1.5 text-xs border transition-all cursor-pointer whitespace-nowrap',
             selected.includes(opt.value)
               ? 'bg-accent-dim border-accent-border text-accent'
               : 'bg-surface border-white/12 text-muted-foreground hover:bg-white/6 hover:text-foreground'

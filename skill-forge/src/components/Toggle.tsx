@@ -10,7 +10,7 @@ interface Props {
 export default function Toggle({ label, checked, onChange }: Props) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <Label className="text-[var(--text-base)] text-foreground">{label}</Label>
+      <Label className="text-sm text-foreground">{label}</Label>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );

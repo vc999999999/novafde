@@ -10,6 +10,8 @@ build/
 # Node
 node_modules/
 npm-debug.log*
+yarn-error.log
+pnpm-debug.log*
 
 # Build output
 skill-forge/dist/

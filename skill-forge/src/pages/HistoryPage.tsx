@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { generateDraft, listHistory } from '../api';
-import type { HistoryItem, HistoryItemStatus } from '../types';
+import { listHistory, startGeneration } from '../api';
+import type {
+  HistoryItem,
+  HistoryItemStatus,
+  ModelConnectionStatus,
+} from '../types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +22,9 @@ const STATUS_MAP: Record<HistoryItemStatus, StatusStyle> = {
   generating: { label: '生成中', variant: 'default', dotColor: 'bg-accent' },
   validating: { label: '校验中', variant: 'outline', dotColor: 'bg-warning' },
   downloadable: { label: '可下载', variant: 'default', dotColor: 'bg-success' },
+  'awaiting-user-input': { label: '待补充', variant: 'outline', dotColor: 'bg-warning' },
+  degraded: { label: '低分版本', variant: 'outline', dotColor: 'bg-warning' },
+  interrupted: { label: '已中断', variant: 'destructive', dotColor: 'bg-error' },
   failed: { label: '失败', variant: 'destructive', dotColor: 'bg-error' },
 };
 
@@ -25,7 +32,15 @@ function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : '历史记录加载失败。';
 }
 
-export default function HistoryPage() {
+export default function HistoryPage({
+  connection,
+  onOpenGeneration,
+  onOpenSettings,
+}: {
+  connection: ModelConnectionStatus;
+  onOpenGeneration: (generationId: string) => void;
+  onOpenSettings: () => void;
+}) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +82,7 @@ export default function HistoryPage() {
       setBusyId(draftId);
       setError(null);
       try {
-        await generateDraft(draftId);
+        await startGeneration(draftId);
         await loadHistory();
       } catch (err) {
         setError(messageFromError(err));
@@ -84,7 +99,7 @@ export default function HistoryPage() {
         <p className="mb-2 text-[length:var(--text-xs)] tracking-[0.22em] uppercase text-text-secondary">
           NovaFDE
         </p>
-        <h1 className="text-[length:var(--text-2xl)] leading-[var(--leading-tight)] font-semibold">
+        <h1 className="text-[length:var(--text-2xl)] leading-tight font-semibold">
           历史记录
         </h1>
       </section>
@@ -92,6 +107,17 @@ export default function HistoryPage() {
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {connection.status !== 'connected' && (
+        <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>模型未连接，仍可查看历史结果，但不能从草稿启动新任务。</span>
+            <Button type="button" size="sm" variant="outline" onClick={onOpenSettings}>
+              打开设置
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -111,6 +137,14 @@ export default function HistoryPage() {
         {items.map((item) => {
           const statusInfo = STATUS_MAP[item.status];
           const isBusy = busyId === item.id;
+          const opensExistingGeneration = item.status !== 'draft' && item.generationId;
+          const actionLabel = item.status === 'draft'
+            ? connection.status === 'connected' ? '开始生成' : '请先连接模型'
+            : item.status === 'awaiting-user-input'
+              ? '继续补充'
+              : item.status === 'generating' || item.status === 'validating'
+                ? '查看进度'
+                : '查看结果';
 
           /* Separate per-status Badge styles with custom CSS var colors */
           const badgeClassMap: Record<HistoryItemStatus, string> = {
@@ -118,6 +152,9 @@ export default function HistoryPage() {
             generating: 'bg-accent-dim text-accent border-accent-border',
             validating: 'bg-warning-dim text-warning border-warning-border',
             downloadable: 'bg-success-dim text-success border-success-border',
+            'awaiting-user-input': 'bg-warning-dim text-warning border-warning-border',
+            degraded: 'bg-warning-dim text-warning border-warning-border',
+            interrupted: 'bg-error-dim text-error border-error-border',
             failed: 'bg-error-dim text-error border-error-border',
           };
 
@@ -126,6 +163,9 @@ export default function HistoryPage() {
             generating: 'bg-accent animate-pulse',
             validating: 'bg-warning',
             downloadable: 'bg-success',
+            'awaiting-user-input': 'bg-warning',
+            degraded: 'bg-warning',
+            interrupted: 'bg-error',
             failed: 'bg-error',
           };
 
@@ -183,10 +223,19 @@ export default function HistoryPage() {
                   variant={item.status === 'failed' ? 'destructive' : 'default'}
                   className="mt-3 w-full"
                   type="button"
-                  onClick={() => void handleGenerate(item.id)}
-                  disabled={isBusy}
+                  onClick={() => {
+                    if (opensExistingGeneration) {
+                      onOpenGeneration(item.generationId as string);
+                    } else {
+                      void handleGenerate(item.id);
+                    }
+                  }}
+                  disabled={
+                    isBusy
+                    || (item.status === 'draft' && connection.status !== 'connected')
+                  }
                 >
-                  {isBusy ? '生成中...' : item.status === 'draft' ? '开始生成' : '重新生成'}
+                  {isBusy ? '生成中...' : actionLabel}
                 </Button>
               </CardContent>
             </Card>

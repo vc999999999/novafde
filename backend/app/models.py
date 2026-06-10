@@ -1,30 +1,74 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 TargetPlatform = Literal["claude-code", "codex", "hermes-openclaw"]
-SkillType = Literal["automation", "workflow", "template", "constraint"]
 OutputLanguage = Literal["zh-CN", "en"]
 FreedomLevel = Literal["high", "medium", "low"]
-ValidationStrictness = Literal["loose", "normal", "strict"]
 GenerationStage = Literal[
+    "queued",
     "normalizing",
     "injecting-rules",
     "splitting-workflow",
     "generating-ir",
+    "validating-schema",
     "rendering-files",
+    "running-validation-checks",
+    "evaluating-activation",
+    "evaluating-implementation",
+    "aggregating-scores",
+    "repairing",
+    "awaiting-user-input",
+    "selecting-best-candidate",
     "quality-gate",
     "packaging",
 ]
-GenerationStatus = Literal["idle", "generating", "validating", "success", "failed"]
+GenerationStatus = Literal[
+    "queued",
+    "normalizing",
+    "generating_initial_ir",
+    "validating_schema",
+    "rendering_candidate",
+    "running_validation_checks",
+    "evaluating_activation",
+    "evaluating_implementation",
+    "aggregating_scores",
+    "repairing_round_1",
+    "repairing_round_2",
+    "repairing_round_3",
+    "awaiting_user_input",
+    "selecting_best_candidate",
+    "packaging_high_quality",
+    "packaging_low_score",
+    "succeeded",
+    "degraded",
+    "interrupted",
+    "failed",
+]
 ValidationLevel = Literal["pass", "warning", "blocking"]
-HistoryItemStatus = Literal["draft", "generating", "validating", "downloadable", "failed"]
+HistoryItemStatus = Literal[
+    "draft",
+    "generating",
+    "validating",
+    "awaiting-user-input",
+    "downloadable",
+    "degraded",
+    "interrupted",
+    "failed",
+]
+InputLayer = Literal["required", "derived", "advanced"]
 ModelProviderProtocol = Literal["claude", "openai-compatible"]
-ProviderRole = Literal["generation", "repair", "validation-explanation"]
+ProviderRole = Literal[
+    "generation",
+    "repair",
+    "activation-evaluation",
+    "implementation-evaluation",
+    "validation-explanation",
+]
 ProviderTestStatus = Literal["passed", "failed"]
 ProviderFailureCategory = Literal[
     "auth-missing",
@@ -37,17 +81,19 @@ ProviderFailureCategory = Literal[
     "unknown",
 ]
 DangerLevel = Literal["low", "medium", "high"]
+QualitySeverity = Literal[
+    "security_blocker",
+    "structure_blocker",
+    "quality_error",
+    "warning",
+    "info",
+]
+QualitySource = Literal["validation", "activation", "implementation"]
+InputControl = Literal["short-text", "long-text", "single-select", "multi-select"]
+ConnectionStatusValue = Literal["unconfigured", "connecting", "connected", "disconnected", "error"]
 
 
-class TriggerInfo(BaseModel):
-    intent: str = ""
-    taskType: str = ""
-    positiveExamples: list[str] = Field(default_factory=list)
-    negativeExamples: list[str] = Field(default_factory=list)
-    commonPhrases: list[str] = Field(default_factory=list)
-    relatedFileTypes: list[str] = Field(default_factory=list)
-    relatedTools: list[str] = Field(default_factory=list)
-    relatedObjects: list[str] = Field(default_factory=list)
+MAX_CRITERION_SCORE = 4
 
 
 class WorkflowStep(BaseModel):
@@ -60,18 +106,12 @@ class WorkflowStep(BaseModel):
     failureHandling: str = ""
 
 
-class WorkflowInfo(BaseModel):
-    objective: str = ""
-    steps: list[WorkflowStep] = Field(default_factory=list)
-    preconditions: str = ""
-
-
-class ContextInfo(BaseModel):
-    filesToRead: list[str] = Field(default_factory=list)
-    needsReferences: bool = False
-    needsScripts: bool = False
-    needsAssets: bool = False
-    loadingRule: str = ""
+class PurposeInfo(BaseModel):
+    usage: str = ""
+    desiredOutcome: str = ""
+    process: list[str] = Field(default_factory=list)
+    completionCriteria: str = ""
+    specialCases: str = ""
 
 
 class KnowledgePitfall(BaseModel):
@@ -82,29 +122,14 @@ class KnowledgePitfall(BaseModel):
 
 
 class KnowledgeInfo(BaseModel):
-    industryRules: list[str] = Field(default_factory=list)
-    internalProcesses: list[str] = Field(default_factory=list)
-    personalExperience: list[str] = Field(default_factory=list)
+    professionalInformation: list[str] = Field(default_factory=list)
+    mandatoryRules: list[str] = Field(default_factory=list)
     pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
-
-
-class OutputControl(BaseModel):
-    freedom: FreedomLevel = "medium"
-    allowHardLimits: bool = True
-    validationStrictness: ValidationStrictness = "normal"
-    generateInstallGuide: bool = True
-    allowDownloadWithWarnings: bool = False
-
-
-class ChatMessage(BaseModel):
-    id: str = ""
-    role: Literal["user", "agent"] = "user"
-    content: str = ""
-    timestamp: int = 0
+    relatedSkills: list[str] = Field(default_factory=list)
 
 
 class SupplementInfo(BaseModel):
-    messages: list[ChatMessage] = Field(default_factory=list)
+    content: str = ""
 
 
 class SkillDraft(BaseModel):
@@ -112,14 +137,9 @@ class SkillDraft(BaseModel):
     status: Literal["draft"] = "draft"
     name: str = ""
     displayName: str = ""
-    language: OutputLanguage = "zh-CN"
-    skillType: SkillType = "workflow"
     targetPlatforms: list[TargetPlatform] = Field(default_factory=lambda: ["claude-code"])
-    trigger: TriggerInfo = Field(default_factory=TriggerInfo)
-    workflow: WorkflowInfo = Field(default_factory=WorkflowInfo)
-    context: ContextInfo = Field(default_factory=ContextInfo)
+    purpose: PurposeInfo = Field(default_factory=PurposeInfo)
     knowledge: KnowledgeInfo = Field(default_factory=KnowledgeInfo)
-    outputControl: OutputControl = Field(default_factory=OutputControl)
     supplement: SupplementInfo = Field(default_factory=SupplementInfo)
     createdAt: int
     updatedAt: int
@@ -127,21 +147,18 @@ class SkillDraft(BaseModel):
     @field_validator("targetPlatforms")
     @classmethod
     def target_platforms_must_not_be_empty(cls, value: list[TargetPlatform]) -> list[TargetPlatform]:
-        return value or ["claude-code"]
+        if not value:
+            raise ValueError("targetPlatforms must not be empty")
+        return value
 
 
 class SkillDraftCreate(BaseModel):
     id: str | None = None
     name: str = ""
     displayName: str = ""
-    language: OutputLanguage = "zh-CN"
-    skillType: SkillType = "workflow"
     targetPlatforms: list[TargetPlatform] = Field(default_factory=lambda: ["claude-code"])
-    trigger: TriggerInfo = Field(default_factory=TriggerInfo)
-    workflow: WorkflowInfo = Field(default_factory=WorkflowInfo)
-    context: ContextInfo = Field(default_factory=ContextInfo)
+    purpose: PurposeInfo = Field(default_factory=PurposeInfo)
     knowledge: KnowledgeInfo = Field(default_factory=KnowledgeInfo)
-    outputControl: OutputControl = Field(default_factory=OutputControl)
     supplement: SupplementInfo = Field(default_factory=SupplementInfo)
     createdAt: int | None = None
     updatedAt: int | None = None
@@ -151,27 +168,22 @@ class SkillBrief(BaseModel):
     skillName: str
     displayName: str
     targetUser: str = "solo workflow builder"
-    triggerIntent: str
-    taskType: str
-    positiveExamples: list[str] = Field(default_factory=list)
-    antiTriggers: list[str] = Field(default_factory=list)
-    commonPhrases: list[str] = Field(default_factory=list)
-    workflowObjective: str
+    usage: str
+    desiredOutcome: str
+    roughProcess: list[str] = Field(default_factory=list)
+    completionCriteria: str
+    specialCases: str = ""
+    professionalInformation: list[str] = Field(default_factory=list)
+    mandatoryRules: list[str] = Field(default_factory=list)
+    pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
+    relatedSkills: list[str] = Field(default_factory=list)
+    supplementalContext: str = ""
+    targetPlatforms: list[TargetPlatform] = Field(default_factory=lambda: ["claude-code"])
+    outputLanguage: OutputLanguage = "zh-CN"
     workflowSteps: list[WorkflowStep] = Field(default_factory=list)
-    preconditions: str = ""
-    contextFiles: list[str] = Field(default_factory=list)
     needsReferences: bool = False
     needsScripts: bool = False
     needsAssets: bool = False
-    loadingRule: str = ""
-    unknownKnowledge: list[str] = Field(default_factory=list)
-    pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
-    targetPlatforms: list[TargetPlatform] = Field(default_factory=list)
-    outputLanguage: OutputLanguage = "zh-CN"
-    freedomLevel: FreedomLevel = "medium"
-    allowHardLimits: bool = True
-    validationStrictness: ValidationStrictness = "normal"
-    allowDownloadWithWarnings: bool = False
 
 
 class SkillMeta(BaseModel):
@@ -200,6 +212,8 @@ class AgentKnowledge(BaseModel):
     pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
     examples: list[str] = Field(default_factory=list)
     counterExamples: list[str] = Field(default_factory=list)
+    relatedSkills: list[str] = Field(default_factory=list)
+    supplementalContext: str = ""
 
 
 class SkillQuality(BaseModel):
@@ -240,6 +254,197 @@ class ValidationItem(BaseModel):
     suggestion: str = ""
     blocksDownload: bool = False
     field: str | None = None
+    inputLayer: InputLayer | None = None
+
+
+class UserQuestion(BaseModel):
+    issueId: str
+    question: str
+    inputControl: InputControl = "long-text"
+    options: list[str] = Field(default_factory=list)
+    existingAnswer: str | list[str] | None = None
+
+
+class CriterionScore(BaseModel):
+    criterion: str
+    score: int = Field(ge=0, le=MAX_CRITERION_SCORE)
+    reason: str
+    evidence: list[str] = Field(default_factory=list)
+    suggestion: str
+    requiresUserInput: bool = False
+    userQuestion: str | None = None
+    inputControl: InputControl | None = None
+    options: list[str] = Field(default_factory=list)
+
+
+class QualityIssue(BaseModel):
+    issueId: str
+    source: QualitySource
+    criterion: str
+    severity: QualitySeverity
+    score: float | None = None
+    reason: str
+    evidence: list[str] = Field(default_factory=list)
+    suggestion: str
+    affectedPaths: list[str] = Field(default_factory=list)
+    autoFixable: bool = False
+    requiresUserInput: bool = False
+    userQuestion: str | None = None
+    inputControl: InputControl | None = None
+    options: list[str] = Field(default_factory=list)
+
+
+class JudgeEvaluation(BaseModel):
+    dimension: Literal["activation", "implementation"]
+    criterionScores: list[CriterionScore] = Field(default_factory=list)
+    dimensionScore: float = 0
+    summary: str
+    issues: list[QualityIssue] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    requiresRepair: bool = False
+    requiresUserInput: bool = False
+    userQuestions: list[UserQuestion] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def recalculate_dimension_score(self) -> "JudgeEvaluation":
+        expected = (
+            {
+                "specificity",
+                "completeness",
+                "trigger-term-quality",
+                "distinctiveness-conflict-risk",
+            }
+            if self.dimension == "activation"
+            else {
+                "conciseness",
+                "actionability",
+                "workflow-clarity",
+                "progressive-disclosure",
+            }
+        )
+        actual = {item.criterion for item in self.criterionScores}
+        if actual != expected or len(self.criterionScores) != 4:
+            raise ValueError(
+                f"{self.dimension} evaluation must contain exactly these criteria: "
+                f"{', '.join(sorted(expected))}"
+            )
+        if self.criterionScores:
+            self.dimensionScore = round(
+                sum(item.score for item in self.criterionScores)
+                / (len(self.criterionScores) * MAX_CRITERION_SCORE)
+                * 100,
+                2,
+            )
+        else:
+            self.dimensionScore = 0
+        if not self.requiresUserInput:
+            # If any criterion requires user input, force the dimension to require it too
+            self.requiresUserInput = any(item.requiresUserInput for item in self.criterionScores)
+        return self
+
+
+class QualityEvaluationReport(BaseModel):
+    attemptId: str
+    validationScore: float
+    activationScore: float | None = None
+    implementationScore: float | None = None
+    overallScore: float | None = None
+    passedStrictGate: bool = False
+    passedDegradedGate: bool = False
+    blockingIssueCount: int = 0
+    issues: list[QualityIssue] = Field(default_factory=list)
+    activation: JudgeEvaluation | None = None
+    implementation: JudgeEvaluation | None = None
+    rubricVersion: str
+    evaluatedAt: int
+
+
+class GenerationAttempt(BaseModel):
+    id: str
+    runId: str
+    round: int = Field(ge=0, le=3)
+    parentAttemptId: str | None = None
+    skillIR: dict[str, Any] = Field(default_factory=dict)
+    renderedPath: str
+    isStructurallyValid: bool
+    isSecuritySafe: bool
+    changedPaths: list[str] = Field(default_factory=list)
+    providerId: str | None = None
+    modelName: str | None = None
+    promptVersion: str = "1.0"
+    inputIssueIds: list[str] = Field(default_factory=list)
+    agentCalls: list["AgentCallMetadata"] = Field(default_factory=list)
+    fileHashes: dict[str, str] = Field(default_factory=dict)
+    skillIRSha256: str = ""
+    activationSignature: str = ""
+    implementationSignature: str = ""
+    activationReusedFromAttemptId: str | None = None
+    implementationReusedFromAttemptId: str | None = None
+    durationMs: int = 0
+    createdAt: int
+
+
+class UserSupplement(BaseModel):
+    id: str
+    runId: str
+    issueId: str
+    question: str
+    answer: str | list[str] | None = None
+    skipped: bool = False
+    mergedPaths: list[str] = Field(default_factory=list)
+    createdAt: int
+
+
+class RepairAgentResult(BaseModel):
+    skillIR: SkillIR
+    changedPaths: list[str] = Field(default_factory=list)
+    resolvedIssueIds: list[str] = Field(default_factory=list)
+    unresolvedIssues: list[str] = Field(default_factory=list)
+
+
+class AgentCallMetadata(BaseModel):
+    providerId: str
+    providerRole: ProviderRole
+    protocol: ModelProviderProtocol
+    model: str
+    promptVersion: str
+    inputTokens: int = 0
+    outputTokens: int = 0
+    requests: int = 0
+    durationMs: int = 0
+    estimatedCostUsd: float | None = None
+
+
+class SupplementAnswer(BaseModel):
+    issueId: str
+    answer: str | list[str]
+
+
+class SupplementRequest(BaseModel):
+    answers: list[SupplementAnswer] = Field(default_factory=list)
+    skip: bool = False
+
+
+class GenerationCreateRequest(BaseModel):
+    draftId: str
+    qualityMode: Literal["strict"] = "strict"
+    maxRepairRounds: int = Field(default=3, ge=0, le=3)
+    targetPlatforms: list[TargetPlatform] | None = None
+
+
+class ModelConnectionProvider(BaseModel):
+    id: str
+    name: str
+    model: str
+    protocol: ModelProviderProtocol
+
+
+class ModelConnectionStatus(BaseModel):
+    status: ConnectionStatusValue
+    generationProvider: ModelConnectionProvider | None = None
+    judgeProvider: ModelConnectionProvider | None = None
+    checkedAt: str | None = None
+    message: str
 
 
 class DownloadInfo(BaseModel):
@@ -253,6 +458,7 @@ class DownloadInfo(BaseModel):
 
 class GenerationResult(BaseModel):
     id: str
+    runId: str | None = None
     draftId: str
     status: GenerationStatus
     currentStage: GenerationStage | None
@@ -271,6 +477,29 @@ class GenerationResult(BaseModel):
     providerConnectionRisk: str | None = None
     artifactDir: str | None = None
     zipPath: str | None = None
+    currentRound: int = 0
+    maxRepairRounds: int = 3
+    bestAttemptId: str | None = None
+    finalAttemptId: str | None = None
+    finalRound: int | None = None
+    awaitingUserInputIssueIds: list[str] = Field(default_factory=list)
+    promptedIssueIds: list[str] = Field(default_factory=list)
+    userQuestions: list[UserQuestion] = Field(default_factory=list)
+    qualityReport: QualityEvaluationReport | None = None
+    qualityPolicyVersion: str = "1.0"
+    promptBundleVersion: str = "1.0"
+    failureCode: str | None = None
+    normalizedBrief: dict[str, Any] = Field(default_factory=dict)
+    finalSelectionReason: str | None = None
+    artifactSha256: str | None = None
+    targetPlatformsOverride: list[TargetPlatform] | None = None
+    supplementScoreDelta: float | None = None
+
+    @model_validator(mode="after")
+    def set_run_id(self) -> "GenerationResult":
+        if self.runId is None:
+            self.runId = self.id
+        return self
 
 
 class PreviewResponse(BaseModel):
@@ -287,12 +516,16 @@ class ValidationResponse(BaseModel):
 
 class HistoryItem(BaseModel):
     id: str
+    generationId: str | None = None
     displayName: str
     name: str
     status: HistoryItemStatus
     platforms: list[str]
     createdAt: str
     updatedAt: str
+
+
+_BLOCKED_ENV_NAMES = frozenset({"PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "PWD", "OLDPWD", "EDITOR", "VISUAL", "HOSTNAME", "TMPDIR", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"})
 
 
 class ApiKeyRef(BaseModel):
@@ -305,6 +538,8 @@ class ApiKeyRef(BaseModel):
         cleaned = value.strip()
         if not cleaned or not cleaned.replace("_", "").isalnum() or cleaned[0].isdigit():
             raise ValueError("apiKeyRef.name must be an environment variable name")
+        if cleaned in _BLOCKED_ENV_NAMES:
+            raise ValueError(f"apiKeyRef.name cannot be a well-known environment variable: {cleaned}")
         return cleaned
 
 
@@ -327,6 +562,8 @@ class ModelProviderBase(BaseModel):
     roles: list[ProviderRole] = Field(default_factory=lambda: ["generation"])
     timeoutMs: int = 120000
     retries: int = 2
+    inputPricePerMillionTokens: float = 0
+    outputPricePerMillionTokens: float = 0
     streaming: bool = True
     customHeaders: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
@@ -369,6 +606,16 @@ class ModelProviderBase(BaseModel):
             raise ValueError("retries must be between 0 and 5")
         return value
 
+    @field_validator(
+        "inputPricePerMillionTokens",
+        "outputPricePerMillionTokens",
+    )
+    @classmethod
+    def token_prices_must_not_be_negative(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("token prices must not be negative")
+        return value
+
     @field_validator("customHeaders")
     @classmethod
     def custom_headers_must_not_override_auth(cls, value: dict[str, str]) -> dict[str, str]:
@@ -409,10 +656,22 @@ class ModelProviderConfigPatch(BaseModel):
     roles: list[ProviderRole] | None = None
     timeoutMs: int | None = None
     retries: int | None = None
+    inputPricePerMillionTokens: float | None = None
+    outputPricePerMillionTokens: float | None = None
     streaming: bool | None = None
     customHeaders: dict[str, str] | None = None
     enabled: bool | None = None
     apiKey: str | None = None
+
+    @field_validator(
+        "inputPricePerMillionTokens",
+        "outputPricePerMillionTokens",
+    )
+    @classmethod
+    def token_prices_must_not_be_negative(cls, value: float | None) -> float | None:
+        if value is not None and value < 0:
+            raise ValueError("token prices must not be negative")
+        return value
 
     @field_validator("apiKey")
     @classmethod
@@ -440,3 +699,11 @@ class CliCommandSpec(BaseModel):
 
 
 FileNode.model_rebuild()
+GenerationAttempt.model_rebuild()
+
+
+class AppSettings(BaseModel):
+    defaultGenerateProvider: str = ""
+    defaultRepairProvider: str = ""
+    defaultValidateProvider: str = ""
+    blockOnMissingConfig: bool = True

@@ -4,13 +4,19 @@ let idCounter = 100;
 const uid = () => `draft_${Date.now()}_${++idCounter}`;
 
 export const STAGES = [
-  { key: 'normalizing' as const, label: '输入归一化', sub: '标准化表单和聊天内容' },
-  { key: 'injecting-rules' as const, label: '注入规则', sub: '加载质量规则和易错点' },
-  { key: 'splitting-workflow' as const, label: '工作流拆解', sub: '划分步骤和分支逻辑' },
-  { key: 'generating-ir' as const, label: '生成 Skill IR', sub: '创建中间表示' },
-  { key: 'rendering-files' as const, label: '渲染文件', sub: '输出 SKILL.md 和辅助文件' },
-  { key: 'quality-gate' as const, label: '质量校验', sub: '运行规则校验器' },
-  { key: 'packaging' as const, label: 'zip 打包', sub: '压缩为可下载包' },
+  { key: 'queued' as const, label: '准备任务', sub: '创建本地生成记录' },
+  { key: 'normalizing' as const, label: '整理输入', sub: '归一化表单与补充信息' },
+  { key: 'injecting-rules' as const, label: '注入规则', sub: '将质量规则注入生成上下文' },
+  { key: 'splitting-workflow' as const, label: '拆分工作流', sub: '将复杂流程拆分为可执行步骤' },
+  { key: 'generating-ir' as const, label: '生成 Skill IR', sub: 'PydanticAI 生成结构化候选' },
+  { key: 'running-validation-checks' as const, label: '结构校验', sub: '检查规范、路径与强制规则' },
+  { key: 'evaluating-activation' as const, label: '触发评测', sub: '评估描述的触发准确性' },
+  { key: 'evaluating-implementation' as const, label: '实现评测', sub: '评估工作流可执行性' },
+  { key: 'aggregating-scores' as const, label: '汇总评分', sub: '计算质量门禁与修复方向' },
+  { key: 'quality-gate' as const, label: '质量门禁', sub: '检查是否通过质量门禁' },
+  { key: 'repairing' as const, label: '定向优化', sub: '仅修复未通过的内容' },
+  { key: 'selecting-best-candidate' as const, label: '选择版本', sub: '选择历史最高分安全候选' },
+  { key: 'packaging' as const, label: '打包文件', sub: '生成可下载 zip' },
 ];
 
 export function createBlankDraft(): SkillDraft {
@@ -20,45 +26,21 @@ export function createBlankDraft(): SkillDraft {
     id: uid(),
     name: '',
     displayName: '',
-    language: 'zh-CN',
-    skillType: 'workflow',
     targetPlatforms: ['claude-code'],
-    trigger: {
-      intent: '',
-      taskType: '',
-      positiveExamples: [],
-      negativeExamples: [],
-      commonPhrases: [],
-      relatedFileTypes: [],
-      relatedTools: [],
-      relatedObjects: [],
-    },
-    workflow: {
-      objective: '',
-      steps: [],
-      preconditions: '',
-    },
-    context: {
-      filesToRead: [],
-      needsReferences: false,
-      needsScripts: false,
-      needsAssets: false,
-      loadingRule: '',
+    purpose: {
+      usage: '',
+      desiredOutcome: '',
+      process: [],
+      completionCriteria: '',
+      specialCases: '',
     },
     knowledge: {
-      industryRules: [],
-      internalProcesses: [],
-      personalExperience: [],
+      professionalInformation: [],
+      mandatoryRules: [],
       pitfalls: [],
+      relatedSkills: [],
     },
-    outputControl: {
-      freedom: 'medium',
-      allowHardLimits: true,
-      validationStrictness: 'normal',
-      generateInstallGuide: true,
-      allowDownloadWithWarnings: false,
-    },
-    supplement: { messages: [] },
+    supplement: { content: '' },
     createdAt: now,
     updatedAt: now,
   };
@@ -70,32 +52,10 @@ export const PLATFORMS = [
   { value: 'hermes-openclaw' as const, label: 'Hermes / OpenClaw' },
 ];
 
-export const SKILL_TYPES = [
-  { value: 'automation' as const, label: '自动化任务' },
-  { value: 'workflow' as const, label: '工作流' },
-  { value: 'template' as const, label: '模板' },
-  { value: 'constraint' as const, label: '约束规则' },
-];
-
-export const FREEDOM_LEVELS = [
-  { value: 'high' as const, label: '高自由度', desc: 'Agent 可以灵活发挥' },
-  { value: 'medium' as const, label: '中等自由度', desc: '遵循流程但可微调' },
-  { value: 'low' as const, label: '低自由度', desc: '严格按步骤执行' },
-];
-
-export const VALIDATION_LEVELS = [
-  { value: 'loose' as const, label: '宽松', desc: '只检查必要项' },
-  { value: 'normal' as const, label: '正常', desc: '标准校验规则' },
-  { value: 'strict' as const, label: '严格', desc: '全面深度校验' },
-];
-
 export const STEP_KEYS = [
   'basic',
-  'trigger',
-  'workflow',
-  'context',
+  'purpose',
   'knowledge',
-  'output',
   'supplement',
 ] as const;
 
@@ -103,42 +63,35 @@ export type StepKey = (typeof STEP_KEYS)[number];
 
 export const STEP_LABELS: Record<StepKey, string> = {
   basic: '基础信息',
-  trigger: '触发条件',
-  workflow: '工作流',
-  context: '文件上下文',
-  knowledge: '经验知识',
-  output: '输出控制',
-  supplement: '聊天补充',
+  purpose: '用途与流程',
+  knowledge: '知识、规则与依赖',
+  supplement: '补充说明',
 };
 
 export const STEP_COMPLETION_WEIGHTS: Record<StepKey, (draft: SkillDraft) => number> = {
   basic: (draft) => {
     let score = 0;
-    if (draft.displayName) score += 40;
-    if (draft.name) score += 30;
-    if (draft.targetPlatforms.length > 0) score += 30;
+    if (draft.displayName) score += 60;
+    if (draft.targetPlatforms.length > 0) score += 40;
     return score;
   },
-  trigger: (draft) => {
+  purpose: (draft) => {
     let score = 0;
-    if (draft.trigger.intent) score += 25;
-    if (draft.trigger.taskType) score += 25;
-    if (draft.trigger.positiveExamples.length > 0) score += 25;
-    if (draft.trigger.negativeExamples.length > 0) score += 25;
+    if (draft.purpose.usage.trim()) score += 20;
+    if (draft.purpose.desiredOutcome.trim()) score += 20;
+    if (draft.purpose.process.some((item) => item.trim())) score += 30;
+    if (draft.purpose.completionCriteria.trim()) score += 30;
     return score;
   },
-  workflow: (draft) => {
-    if (draft.workflow.steps.length === 0) return 0;
-    return Math.min(100, (draft.workflow.steps.length / 2) * 50 + (draft.workflow.objective ? 50 : 0));
-  },
-  context: () => 60,
   knowledge: (draft) => {
-    let score = 30;
-    if (draft.knowledge.pitfalls.length > 0) score += 40;
-    if (draft.knowledge.industryRules.length > 0) score += 30;
-    return Math.min(100, score);
+    let score = 0;
+    if (draft.knowledge.professionalInformation.length > 0) score += 34;
+    if (draft.knowledge.mandatoryRules.length > 0) score += 33;
+    if (draft.knowledge.pitfalls.some((pitfall) =>
+      pitfall.description.trim() && pitfall.goodExample.trim() && pitfall.badExample.trim()
+    )) score += 33;
+    return score;
   },
-  output: () => 100,
   supplement: () => 100,
 };
 
@@ -152,40 +105,40 @@ export const LLM_PROVIDER_PRESETS = [
     label: 'Anthropic Claude',
     protocol: 'claude' as const,
     baseUrl: 'https://api.anthropic.com',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     keyEnv: 'ANTHROPIC_API_KEY',
-    models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-20250514'],
+    models: ['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-fable-5', 'claude-haiku-4-5'],
   },
   {
     label: 'OpenAI',
     protocol: 'openai-compatible' as const,
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     keyEnv: 'OPENAI_API_KEY',
-    models: ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
+    models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
   },
   {
     label: 'DeepSeek',
     protocol: 'openai-compatible' as const,
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     keyEnv: 'DEEPSEEK_API_KEY',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   },
   {
     label: 'OpenRouter',
     protocol: 'openai-compatible' as const,
     baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'anthropic/claude-sonnet-4',
+    model: 'openrouter/auto',
     keyEnv: 'OPENROUTER_API_KEY',
-    models: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'deepseek/deepseek-chat'],
+    models: ['openrouter/auto'],
   },
   {
     label: '本地 Ollama',
     protocol: 'openai-compatible' as const,
     baseUrl: 'http://localhost:11434',
-    model: 'llama3',
+    model: '',
     keyEnv: 'OLLAMA_API_KEY',
-    models: ['llama3', 'qwen2.5', 'deepseek-r1'],
+    models: [],
   },
 ];

@@ -8,8 +8,7 @@ usage() {
 Usage: sh scripts/install.sh
 
 Checks local Python and Node runtimes, creates a Python virtual environment,
-installs backend/frontend dependencies, initializes local directories, and
-creates an .env template without storing credentials.
+installs backend/frontend dependencies and initializes local directories.
 EOF
 }
 
@@ -31,16 +30,5 @@ python3 -m pip install -r backend/requirements.txt
 (cd skill-forge && npm install)
 
 mkdir -p backend/.data/artifacts logs config
-if [ ! -f .env ]; then
-  cat > .env <<'EOF'
-# SkillForge local configuration.
-# Store provider credentials in your shell environment or fill these locally.
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-EOF
-  echo "Created .env template."
-else
-  echo ".env already exists; leaving it unchanged."
-fi
 
 echo "Install finished."

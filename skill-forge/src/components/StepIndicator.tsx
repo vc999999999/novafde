@@ -15,7 +15,7 @@ export default function StepIndicator({ steps, currentStep, onStepClick, complet
         <div key={step.key} style={{ display: 'contents' }}>
           <button
             className={cn(
-              'w-7 h-7 rounded-full border flex items-center justify-center text-[var(--text-xs)] shrink-0 cursor-pointer transition-all',
+              'w-7 h-7 rounded-full border flex items-center justify-center text-[11px] shrink-0 cursor-pointer transition-all',
               i < currentStep
                 ? 'bg-success border-success text-black'
                 : i === currentStep

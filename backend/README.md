@@ -1,15 +1,18 @@
-# SkillForge Backend
+# NovaFDE Backend
 
-FastAPI backend for the local-first SkillForge MVP.
+Local-only FastAPI backend for the PydanticAI quality loop.
 
 ## Run
 
 ```bash
-python3 -m uvicorn app.main:app --app-dir backend --reload
+.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --reload
 ```
 
 ## Test
 
 ```bash
-PYTHONPATH=backend python3 -m pytest backend/tests -q
+.venv/bin/python -m pytest backend/tests -q
 ```
+
+Production storage is SQLite only. Provider credentials use the system keychain
+when available and an encrypted local store otherwise.

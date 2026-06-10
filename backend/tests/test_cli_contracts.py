@@ -18,12 +18,11 @@ def test_cli_command_contract_api_lists_safe_local_commands(tmp_path: Path) -> N
     assert response.status_code == 200
     commands = response.json()
     names = {command["name"] for command in commands}
-    assert {"install", "run", "doctor", "setup-llm", "clean-artifacts", "config set", "config test"}.issubset(names)
+    assert {"install", "run", "doctor", "setup-llm", "clean-artifacts", "config set"}.issubset(names)
 
     setup_command = next(command for command in commands if command["name"] == "setup-llm")
     assert setup_command["command"] == "sh scripts/setup-llm.sh"
     assert setup_command["repeatable"] is True
-    assert ".env" in setup_command["writes"]
     assert "config/providers.local.json" in setup_command["writes"]
     assert setup_command["dangerLevel"] == "low"
 
@@ -52,13 +51,13 @@ def test_required_shell_scripts_have_help_and_do_not_print_or_delete_keys() -> N
     assert "providers.local.json" not in clean_content
 
 
-def test_run_script_loads_dotenv_before_starting_backend() -> None:
+def test_run_script_starts_loopback_backend_without_loading_plaintext_dotenv() -> None:
     run_content = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
-    assert ". ./.env" in run_content
-    assert run_content.index(". ./.env") < run_content.index("python3 -m uvicorn")
+    assert ". ./.env" not in run_content
+    assert "--host 127.0.0.1" in run_content
 
 
-def test_skillforge_wrapper_help_lists_config_and_generation_commands() -> None:
+def test_skillforge_wrapper_help_lists_only_implemented_commands() -> None:
     wrapper = PROJECT_ROOT / "skillforge"
     assert wrapper.exists()
 
@@ -71,6 +70,5 @@ def test_skillforge_wrapper_help_lists_config_and_generation_commands() -> None:
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
     assert result.returncode == 0
-    assert "skillforge config test" in result.stdout
-    assert "skillforge generate" in result.stdout
-    assert "skillforge package" in result.stdout
+    assert "skillforge config set" in result.stdout
+    assert "skillforge generate" not in result.stdout

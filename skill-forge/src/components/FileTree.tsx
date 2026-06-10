@@ -18,8 +18,8 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
         </span>
         {node.size && <span className="ml-auto text-[12px] text-tertiary">{node.size}</span>}
       </div>
-      {node.children?.map((child) => (
-        <FileTreeNode key={child.name} node={child} depth={depth + 1} />
+      {node.children?.map((child, index) => (
+        <FileTreeNode key={`${depth}-${index}-${child.name}`} node={child} depth={depth + 1} />
       ))}
     </div>
   );
@@ -27,9 +27,9 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
 
 export default function FileTree({ files }: Props) {
   return (
-    <div className="font-mono text-[var(--text-sm)] leading-[1.8]">
-      {files.map((node) => (
-        <FileTreeNode key={node.name} node={node} depth={0} />
+    <div className="font-mono text-xs leading-[1.8]">
+      {files.map((node, index) => (
+        <FileTreeNode key={`0-${index}-${node.name}`} node={node} depth={0} />
       ))}
     </div>
   );

@@ -1,65 +1,86 @@
 from __future__ import annotations
 
-import shutil
 import json
-import os
+import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean
 from typing import Any
 
-from app.adapter import PLATFORM_LABELS, write_install_guides
-from app.agent import DeterministicSkillIRProvider, ModelProvider
+from app.adapter import PLATFORM_LABELS
+from app.agent import PydanticSkillAgents, SkillAgentRuntime
 from app.cli_contracts import CLI_COMMANDS
 from app.models import (
+    AppSettings,
     CliCommandSpec,
     GenerationResult,
     HistoryItem,
+    ModelConnectionProvider,
+    ModelConnectionStatus,
     ModelProviderConfig,
     ModelProviderConfigCreate,
     ModelProviderConfigPatch,
     PreviewResponse,
     ProviderTestResult,
+    QualityEvaluationReport,
     SkillDraft,
     SkillDraftCreate,
-    ValidationItem,
+    SupplementRequest,
+    UserSupplement,
     ValidationResponse,
 )
-from app.normalizer import normalize_draft
-from app.packager import build_download_info, create_zip, write_manifest, write_validation_report
+from app.orchestrator import QualityOrchestrator
 from app.provider_runtime import ModelProviderRuntime
-from app.repair import MAX_REPAIR_ATTEMPTS, repair_ir
-from app.renderer import build_file_tree, render_skill_package
+from app.quality import QualityPolicy
 from app.rules import RULES
+from app.secret_store import SecretStore
 from app.settings import Settings
 from app.storage import Storage
-from app.utils import make_id, now_ms, sanitize_skill_name
-from app.validator import blocking_count, validate_ir, validate_rendered_package, warning_count
+from app.utils import make_id, now_ms, sanitize_skill_name, sha256_file
 
 
 class SkillForgeService:
-    def __init__(self, settings: Settings, provider: ModelProvider | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        agents: SkillAgentRuntime | None = None,
+    ) -> None:
         self.settings = settings
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.settings.artifact_root.mkdir(parents=True, exist_ok=True)
         self.storage = Storage(settings.database_path)
-        self.provider = provider or DeterministicSkillIRProvider()
+        self.storage.recover_interrupted_generations()
+        self._cleanup_expired_attempts()
         self.provider_runtime = ModelProviderRuntime()
+        self.secret_store = SecretStore(
+            encrypted_path=settings.encrypted_secrets_path,
+            key_path=settings.secret_key_path,
+            prefer_keyring=settings.use_system_keyring,
+        )
         self._load_local_provider_config()
+        self._load_provider_secrets()
+        self.agents = agents or PydanticSkillAgents()
+        self.orchestrator = QualityOrchestrator(
+            settings=settings,
+            storage=self.storage,
+            agents=self.agents,
+            policy=QualityPolicy(),
+        )
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="skillforge")
+        self._resume_lock = threading.Lock()
+        self._resuming_runs: set[str] = set()
 
     def create_draft(self, payload: SkillDraftCreate) -> SkillDraft:
         timestamp = now_ms()
         draft = SkillDraft(
             id=payload.id or make_id("draft"),
             name=sanitize_skill_name(payload.name or payload.displayName),
-            displayName=payload.displayName or payload.name or "Untitled Skill",
-            language=payload.language,
-            skillType=payload.skillType,
+            displayName=payload.displayName or payload.name,
             targetPlatforms=payload.targetPlatforms,
-            trigger=payload.trigger,
-            workflow=payload.workflow,
-            context=payload.context,
+            purpose=payload.purpose,
             knowledge=payload.knowledge,
-            outputControl=payload.outputControl,
             supplement=payload.supplement,
             createdAt=payload.createdAt or timestamp,
             updatedAt=payload.updatedAt or timestamp,
@@ -85,159 +106,156 @@ class SkillForgeService:
         updated = SkillDraft.model_validate(merged)
         return self.storage.save_draft(updated)
 
-    def generate(self, draft_id: str) -> GenerationResult | None:
+    def generate(
+        self,
+        draft_id: str,
+        *,
+        max_repair_rounds: int = 3,
+        target_platforms: list[str] | None = None,
+    ) -> GenerationResult | None:
         draft = self.storage.get_draft(draft_id)
         if draft is None:
             return None
-
         generation_id = make_id("gen")
-        started_at = now_ms()
-        artifact_dir = self.settings.artifact_root / generation_id
-        if artifact_dir.exists():
-            shutil.rmtree(artifact_dir)
-        artifact_dir.mkdir(parents=True, exist_ok=True)
+        self.storage.create_generation_shell(
+            generation_id=generation_id,
+            draft_id=draft.id,
+            started_at=now_ms(),
+            max_repair_rounds=max_repair_rounds,
+            target_platforms=target_platforms,
+        )
+        return self.orchestrator.run(generation_id)
 
-        generation_provider = self.storage.find_enabled_provider_for_role("generation")
-        if generation_provider is None:
-            validation_items = [_missing_provider_item()]
-            generation = GenerationResult(
-                id=generation_id,
-                draftId=draft.id,
-                status="failed",
-                currentStage="injecting-rules",
-                progress=15,
-                validation=validation_items,
-                blockingIssues=blocking_count(validation_items),
-                warnings=warning_count(validation_items),
-                startedAt=started_at,
-                completedAt=now_ms(),
-                errorMessage="缺少启用的 generation Model Provider，请先完成模型配置。",
-                artifactDir=str(artifact_dir),
+    def start_generation(
+        self,
+        draft_id: str,
+        *,
+        max_repair_rounds: int = 3,
+        target_platforms: list[str] | None = None,
+    ) -> GenerationResult | None:
+        draft = self.storage.get_draft(draft_id)
+        if draft is None:
+            return None
+        generation = self.storage.create_generation_shell(
+            generation_id=make_id("gen"),
+            draft_id=draft.id,
+            started_at=now_ms(),
+            max_repair_rounds=max_repair_rounds,
+            target_platforms=target_platforms,
+        )
+        self._executor.submit(self._run_generation, generation.id)
+        return generation
+
+    def submit_supplement(
+        self,
+        generation_id: str,
+        payload: SupplementRequest,
+        *,
+        background: bool = True,
+    ) -> GenerationResult | None:
+        generation = self.storage.get_generation(generation_id)
+        if generation is None:
+            return None
+        answers = [item.model_dump(mode="json") for item in payload.answers]
+        if background:
+            with self._resume_lock:
+                if generation_id in self._resuming_runs:
+                    return generation
+                self._resuming_runs.add(generation_id)
+            answer_by_issue = {
+                item["issueId"]: item.get("answer")
+                for item in answers
+            }
+            for question in generation.userQuestions:
+                answer = answer_by_issue.get(question.issueId)
+                skipped = payload.skip or answer is None
+                self.storage.save_supplement(
+                    UserSupplement(
+                        id=make_id("supplement"),
+                        runId=generation_id,
+                        issueId=question.issueId,
+                        question=question.question,
+                        answer=None if skipped else answer,
+                        skipped=skipped,
+                        mergedPaths=[] if skipped else ["supplement.content"],
+                        createdAt=now_ms(),
+                    )
+                )
+            self._executor.submit(
+                self._resume_generation,
+                generation_id,
+                answers,
+                payload.skip,
             )
-            return self.storage.save_generation(generation)
-
-        brief, brief_validation = normalize_draft(draft)
-        if blocking_count(brief_validation):
-            generation = GenerationResult(
-                id=generation_id,
-                draftId=draft.id,
-                status="failed",
-                currentStage="normalizing",
-                progress=10,
-                validation=brief_validation,
-                blockingIssues=blocking_count(brief_validation),
-                warnings=warning_count(brief_validation),
-                startedAt=started_at,
-                completedAt=now_ms(),
-                errorMessage="生成输入存在阻塞问题，请补充草稿后重试。",
-                modelProviderId=generation_provider.id,
-                modelProtocol=generation_provider.protocol,
-                providerConnectionRisk=_provider_connection_risk(generation_provider),
-                artifactDir=str(artifact_dir),
-            )
-            return self.storage.save_generation(generation)
-
-        ir = self.provider.generate_ir(brief)
-        ir_validation = validate_ir(ir)
-        repair_changes: list[str] = []
-        for _attempt in range(MAX_REPAIR_ATTEMPTS):
-            if not blocking_count(ir_validation):
-                break
-            ir, changes = repair_ir(ir, brief, ir_validation)
-            if not changes:
-                break
-            repair_changes.extend(changes)
-            ir_validation = validate_ir(ir)
-
-        validation_items = [*brief_validation, *ir_validation]
-        if repair_changes:
-            validation_items.append(
-                _repair_pass_item(repair_changes)
-            )
-        if blocking_count(validation_items):
-            generation = GenerationResult(
-                id=generation_id,
-                draftId=draft.id,
-                status="failed",
-                currentStage="generating-ir",
-                progress=45,
-                validation=validation_items,
-                blockingIssues=blocking_count(validation_items),
-                warnings=warning_count(validation_items),
-                startedAt=started_at,
-                completedAt=now_ms(),
-                errorMessage="Skill IR 存在阻塞问题，自动修复后仍未通过。",
-                modelProviderId=generation_provider.id,
-                modelProtocol=generation_provider.protocol,
-                providerConnectionRisk=_provider_connection_risk(generation_provider),
-                artifactDir=str(artifact_dir),
-            )
-            return self.storage.save_generation(generation)
-
-        package_root = artifact_dir / "package"
-        render_skill_package(ir, package_root)
-        write_install_guides(package_root, ir)
-        validation_items.extend(validate_rendered_package(package_root, ir))
-        blocking_issues = blocking_count(validation_items)
-        warnings = warning_count(validation_items)
-
-        if blocking_issues:
-            write_validation_report(package_root, validation_items)
-            generation = GenerationResult(
-                id=generation_id,
-                draftId=draft.id,
-                status="failed",
-                currentStage="quality-gate",
-                progress=75,
-                files=build_file_tree(package_root),
-                skillMd=(package_root / ir.skill.name / "SKILL.md").read_text(encoding="utf-8"),
-                validation=validation_items,
-                blockingIssues=blocking_issues,
-                warnings=warnings,
-                startedAt=started_at,
-                completedAt=now_ms(),
-                errorMessage="渲染包未通过阻塞校验。",
-                modelProviderId=generation_provider.id,
-                modelProtocol=generation_provider.protocol,
-                providerConnectionRisk=_provider_connection_risk(generation_provider),
-                artifactDir=str(artifact_dir),
-            )
-            return self.storage.save_generation(generation)
-
-        generated_at = datetime.now(timezone.utc).isoformat()
-        write_validation_report(package_root, validation_items)
-        write_manifest(package_root, ir, validation_items)
-        zip_name = f"{ir.skill.name}-package.zip"
-        zip_path = artifact_dir / zip_name
-        create_zip(package_root, zip_path)
-        download_info = build_download_info(
-            zip_path=zip_path,
-            package_name=zip_name,
-            platforms=[PLATFORM_LABELS[target] for target in ir.platforms.targets],
-            generated_at=generated_at,
+            return generation
+        return self.orchestrator.resume_with_supplement(
+            generation_id,
+            answers=answers,
+            skip=payload.skip,
         )
 
-        generation = GenerationResult(
-            id=generation_id,
-            draftId=draft.id,
-            status="success",
-            currentStage="packaging",
-            progress=100,
-            files=build_file_tree(package_root),
-            skillMd=(package_root / ir.skill.name / "SKILL.md").read_text(encoding="utf-8"),
-            validation=validation_items,
-            blockingIssues=0,
-            warnings=warnings,
-            downloadInfo=download_info,
-            startedAt=started_at,
-            completedAt=now_ms(),
-            modelProviderId=generation_provider.id,
-            modelProtocol=generation_provider.protocol,
-            providerConnectionRisk=_provider_connection_risk(generation_provider),
-            artifactDir=str(artifact_dir),
-            zipPath=str(zip_path),
-        )
-        return self.storage.save_generation(generation)
+    def quality_report(self, generation_id: str) -> QualityEvaluationReport | None:
+        generation = self.storage.get_generation(generation_id)
+        if generation is None or not generation.bestAttemptId:
+            return generation.qualityReport if generation else None
+        return self.storage.get_quality_report(generation.bestAttemptId)
+
+    def quality_payload(self, generation_id: str) -> dict[str, Any] | None:
+        report = self.quality_report(generation_id)
+        generation = self.storage.get_generation(generation_id)
+        if report is None or generation is None:
+            return None
+        attempts = self.storage.list_attempts(generation_id)
+        reports = {
+            item.attemptId: item
+            for item in self.storage.list_quality_reports(generation_id)
+        }
+        return {
+            **report.model_dump(mode="json"),
+            "qualityPolicyVersion": generation.qualityPolicyVersion,
+            "repairHistory": [
+                {
+                    "attemptId": attempt.id,
+                    "round": attempt.round,
+                    "changedPaths": attempt.changedPaths,
+                    "scores": (
+                        {
+                            "validation": reports[attempt.id].validationScore,
+                            "activation": reports[attempt.id].activationScore,
+                            "implementation": reports[attempt.id].implementationScore,
+                            "overall": reports[attempt.id].overallScore,
+                        }
+                        if attempt.id in reports
+                        else None
+                    ),
+                }
+                for attempt in attempts
+            ],
+        }
+
+    def attempts(self, generation_id: str) -> list[dict[str, Any]] | None:
+        if self.storage.get_generation(generation_id) is None:
+            return None
+        reports = {
+            item.attemptId: item
+            for item in self.storage.list_quality_reports(generation_id)
+        }
+        generation = self.storage.get_generation(generation_id)
+        return [
+            {
+                **attempt.model_dump(mode="json"),
+                "isBest": generation is not None and generation.bestAttemptId == attempt.id,
+                "qualityReport": (
+                    reports[attempt.id].model_dump(mode="json")
+                    if attempt.id in reports
+                    else None
+                ),
+            }
+            for attempt in self.storage.list_attempts(generation_id)
+        ]
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
 
     def get_generation(self, generation_id: str) -> GenerationResult | None:
         return self.storage.get_generation(generation_id)
@@ -263,8 +281,131 @@ class SkillForgeService:
         generation = self.storage.get_generation(generation_id)
         if generation is None or not generation.zipPath:
             return None
-        path = Path(generation.zipPath)
-        return path if path.exists() else None
+        path = Path(generation.zipPath).resolve()
+        artifact_root = self.settings.artifact_root.resolve()
+        if not path.is_relative_to(artifact_root) or not path.is_file():
+            return None
+        if not generation.artifactSha256 or sha256_file(path) != generation.artifactSha256:
+            return None
+        return path
+
+    def run_events(self, generation_id: str) -> list[dict[str, Any]] | None:
+        if self.storage.get_generation(generation_id) is None:
+            return None
+        return self.storage.list_run_events(generation_id)
+
+    def error_patterns(self) -> list[dict[str, Any]]:
+        return self.storage.list_error_patterns()
+
+    def diagnostics_metrics(self) -> dict[str, Any]:
+        runs = self.storage.list_generations()
+        terminal = [
+            run for run in runs
+            if run.status in {"succeeded", "degraded", "failed", "interrupted"}
+        ]
+        strict_count = sum(run.status == "succeeded" for run in terminal)
+        degraded_count = sum(run.status == "degraded" for run in terminal)
+        failed_count = sum(run.status in {"failed", "interrupted"} for run in terminal)
+        first_pass_count = 0
+        score_improvements: list[float] = []
+        criterion_scores: dict[str, list[float]] = {}
+        regressions = 0
+        model_calls: dict[str, list[Any]] = {}
+        model_attempt_results: dict[str, list[bool]] = {}
+        supplement_runs = 0
+        skipped_supplements = 0
+        supplement_count = 0
+
+        for run in terminal:
+            reports = self.storage.list_quality_reports(run.id)
+            reports_by_attempt = {report.attemptId: report for report in reports}
+            if reports and reports[0].passedStrictGate:
+                first_pass_count += 1
+            for report in reports:
+                for evaluation in [report.activation, report.implementation]:
+                    if evaluation is None:
+                        continue
+                    for criterion in evaluation.criterionScores:
+                        key = f"{evaluation.dimension}.{criterion.criterion}"
+                        criterion_scores.setdefault(key, []).append(
+                            criterion.score / 4 * 100
+                        )
+            for previous, current in zip(reports, reports[1:]):
+                if previous.overallScore is None or current.overallScore is None:
+                    continue
+                improvement = current.overallScore - previous.overallScore
+                score_improvements.append(improvement)
+                regressions += improvement < 0
+            for attempt in self.storage.list_attempts(run.id):
+                for call in attempt.agentCalls:
+                    model_calls.setdefault(call.model, []).append(call)
+                report = reports_by_attempt.get(attempt.id)
+                if report is not None:
+                    for model in {call.model for call in attempt.agentCalls}:
+                        model_attempt_results.setdefault(model, []).append(
+                            report.passedStrictGate
+                        )
+            supplements = self.storage.list_supplements(run.id)
+            if supplements:
+                supplement_runs += 1
+            supplement_count += len(supplements)
+            skipped_supplements += sum(item.skipped for item in supplements)
+
+        def rate(numerator: int, denominator: int) -> float:
+            return round(numerator / denominator * 100, 2) if denominator else 0
+
+        model_metrics = {}
+        for model, calls in model_calls.items():
+            durations = sorted(call.durationMs for call in calls)
+            p95_index = max(0, round((len(durations) - 1) * 0.95))
+            model_metrics[model] = {
+                "calls": len(calls),
+                "inputTokens": sum(call.inputTokens for call in calls),
+                "outputTokens": sum(call.outputTokens for call in calls),
+                "estimatedCostUsd": round(
+                    sum(call.estimatedCostUsd or 0 for call in calls),
+                    6,
+                ),
+                "p95LatencyMs": durations[p95_index] if durations else 0,
+                "strictPassRate": rate(
+                    sum(model_attempt_results.get(model, [])),
+                    len(model_attempt_results.get(model, [])),
+                ),
+            }
+
+        technical_failure_rate = rate(failed_count, len(terminal))
+        alerts = []
+        if technical_failure_rate > 20:
+            alerts.append("技术失败率超过 20%。")
+        if any(
+            pattern["criterion"] == "RULE-001"
+            for pattern in self.storage.list_error_patterns()
+        ):
+            alerts.append("检测到强制规则完整性问题。")
+
+        return {
+            "runCount": len(terminal),
+            "firstRoundStrictPassRate": rate(first_pass_count, len(terminal)),
+            "finalStrictPassRate": rate(strict_count, len(terminal)),
+            "degradedDeliveryRate": rate(degraded_count, len(terminal)),
+            "technicalFailureRate": technical_failure_rate,
+            "averageRepairRounds": round(
+                mean(run.currentRound for run in terminal),
+                2,
+            ) if terminal else 0,
+            "averageScoreImprovement": round(mean(score_improvements), 2)
+            if score_improvements else 0,
+            "scoreRegressionRate": rate(regressions, len(score_improvements)),
+            "supplementPromptRate": rate(supplement_runs, len(terminal)),
+            "supplementSkipRate": rate(skipped_supplements, supplement_count),
+            "criterionAverageScores": {
+                criterion: round(mean(scores), 2)
+                for criterion, scores in criterion_scores.items()
+            },
+            "issueFrequency": self.storage.list_error_patterns(),
+            "models": model_metrics,
+            "alerts": alerts,
+        }
 
     def history(self) -> list[HistoryItem]:
         items: list[HistoryItem] = []
@@ -274,18 +415,36 @@ class SkillForgeService:
             if latest is None:
                 status = "draft"
                 updated_at = draft.updatedAt
-            elif latest.status == "success":
+            elif latest.status == "succeeded":
                 status = "downloadable"
+                updated_at = latest.completedAt or latest.startedAt
+            elif latest.status == "degraded":
+                status = "degraded"
+                updated_at = latest.completedAt or latest.startedAt
+            elif latest.status == "awaiting_user_input":
+                status = "awaiting-user-input"
+                updated_at = latest.startedAt
+            elif latest.status == "interrupted":
+                status = "interrupted"
                 updated_at = latest.completedAt or latest.startedAt
             elif latest.status == "failed":
                 status = "failed"
                 updated_at = latest.completedAt or latest.startedAt
+            elif latest.status in {
+                "running_validation_checks",
+                "evaluating_activation",
+                "evaluating_implementation",
+                "aggregating_scores",
+            }:
+                status = "validating"
+                updated_at = latest.startedAt
             else:
                 status = "generating"
                 updated_at = latest.startedAt
             items.append(
                 HistoryItem(
                     id=draft.id,
+                    generationId=latest.id if latest else None,
                     displayName=draft.displayName,
                     name=draft.name,
                     status=status,
@@ -302,7 +461,7 @@ class SkillForgeService:
     def create_provider(self, payload: ModelProviderConfigCreate) -> ModelProviderConfig:
         provider = ModelProviderConfig(id=make_id("provider"), **payload.model_dump(mode="json", exclude={"apiKey"}))
         if payload.apiKey:
-            _write_env_secret(self.settings.env_path, provider.apiKeyRef.name, payload.apiKey)
+            self.secret_store.set(provider.apiKeyRef.name, payload.apiKey)
         return self.storage.save_provider(provider, now_ms())
 
     def list_providers(self) -> list[ModelProviderConfig]:
@@ -324,7 +483,7 @@ class SkillForgeService:
         merged["lastTest"] = provider.lastTest.model_dump(mode="json") if provider.lastTest else None
         updated = ModelProviderConfig.model_validate(merged)
         if api_key:
-            _write_env_secret(self.settings.env_path, updated.apiKeyRef.name, api_key)
+            self.secret_store.set(updated.apiKeyRef.name, api_key)
         return self.storage.save_provider(updated, now_ms())
 
     def delete_provider(self, provider_id: str) -> bool:
@@ -338,8 +497,149 @@ class SkillForgeService:
         self.storage.save_provider_test_result(provider_id, result, now_ms())
         return result
 
+    def connection_status(self) -> ModelConnectionStatus:
+        app_settings = self.get_settings()
+        generation_provider = self._resolve_provider_for_role(
+            "generation",
+            app_settings.defaultGenerateProvider,
+        )
+        if generation_provider is None:
+            return ModelConnectionStatus(
+                status="unconfigured",
+                message="尚未配置启用的 generation Provider。",
+            )
+
+        judge_provider = (
+            self._resolve_provider_for_role(
+                "activation-evaluation",
+                app_settings.defaultValidateProvider,
+            )
+            or self._resolve_provider_for_role(
+                "validation-explanation",
+                app_settings.defaultValidateProvider,
+            )
+            or generation_provider
+        )
+        repair_provider = (
+            self._resolve_provider_for_role(
+                "repair",
+                app_settings.defaultRepairProvider,
+            )
+            or generation_provider
+        )
+        required_providers = {
+            "生成": generation_provider,
+            "修复": repair_provider,
+            "评测": judge_provider,
+        }
+        untested_roles = [
+            role
+            for role, provider in required_providers.items()
+            if provider.lastTest is None
+        ]
+        failed = [
+            (role, provider.lastTest)
+            for role, provider in required_providers.items()
+            if provider.lastTest is not None and provider.lastTest.status == "failed"
+        ]
+        if failed:
+            role, last_test = failed[0]
+            status = "error"
+            message = f"{role} Provider 连接失败：{last_test.message}"
+            checked_at = last_test.testedAt
+        elif untested_roles:
+            status = "disconnected"
+            message = f"{'、'.join(untested_roles)} Provider 尚未通过连接测试。"
+            checked_at = None
+        else:
+            status = "connected"
+            message = "生成、修复和评测模型连接均可用。"
+            checked_at = max(
+                provider.lastTest.testedAt
+                for provider in required_providers.values()
+                if provider.lastTest is not None
+            )
+
+        return ModelConnectionStatus(
+            status=status,
+            generationProvider=_connection_provider(generation_provider),
+            judgeProvider=_connection_provider(judge_provider),
+            checkedAt=checked_at,
+            message=message,
+        )
+
     def cli_commands(self) -> list[CliCommandSpec]:
         return CLI_COMMANDS
+
+    def get_settings(self) -> AppSettings:
+        raw = self.storage.get_setting("app_settings")
+        if raw:
+            try:
+                return AppSettings.model_validate_json(raw)
+            except Exception:
+                pass
+        return AppSettings()
+
+    def save_settings(self, settings: AppSettings) -> AppSettings:
+        self.storage.save_setting("app_settings", settings.model_dump_json())
+        return settings
+
+    def model_is_connected(self) -> bool:
+        return self.connection_status().status == "connected"
+
+    def _run_generation(self, generation_id: str) -> None:
+        try:
+            self.orchestrator.run(generation_id)
+        except Exception as exc:
+            generation = self.storage.get_generation(generation_id)
+            if generation is not None and generation.status not in {
+                "succeeded",
+                "degraded",
+                "failed",
+                "interrupted",
+            }:
+                self.orchestrator.fail_unhandled(
+                    generation,
+                    "UNHANDLED_BACKGROUND_ERROR",
+                    f"后台生成任务异常：{exc}",
+                )
+
+    def _resume_generation(
+        self,
+        generation_id: str,
+        answers: list[dict[str, Any]],
+        skip: bool,
+    ) -> None:
+        try:
+            self.orchestrator.resume_with_supplement(
+                generation_id,
+                answers=answers,
+                skip=skip,
+            )
+        except Exception as exc:
+            generation = self.storage.get_generation(generation_id)
+            if generation is not None and generation.status not in {
+                "succeeded",
+                "degraded",
+                "failed",
+                "interrupted",
+            }:
+                self.orchestrator.fail_unhandled(
+                    generation,
+                    "SUPPLEMENT_RESUME_FAILED",
+                    f"补充信息后恢复任务失败：{exc}",
+                )
+        finally:
+            with self._resume_lock:
+                self._resuming_runs.discard(generation_id)
+
+    def _resolve_provider_for_role(self, role: str, preferred_id: str = "") -> ModelProviderConfig | None:
+        """Find the best provider for a role, preferring the saved default."""
+        if preferred_id:
+            provider = self.storage.get_provider(preferred_id)
+            if provider and provider.enabled and role in provider.roles:
+                return provider
+        return self.storage.find_enabled_provider_for_role(role)
 
     def _load_local_provider_config(self) -> None:
         if self.storage.list_providers() or not self.settings.provider_config_path.exists():
@@ -353,6 +653,24 @@ class SkillForgeService:
             provider_id = item.get("id") or make_id("provider")
             provider = ModelProviderConfig.model_validate({**item, "id": provider_id})
             self.storage.save_provider(provider, now_ms())
+
+    def _load_provider_secrets(self) -> None:
+        for provider in self.storage.list_providers():
+            self.secret_store.get(provider.apiKeyRef.name)
+
+    def _cleanup_expired_attempts(self) -> None:
+        cutoff = now_ms() - self.settings.attempt_retention_days * 86_400_000
+        for generation in self.storage.list_generations():
+            if not generation.completedAt or generation.completedAt >= cutoff:
+                continue
+            attempts_dir = self.settings.artifact_root / generation.id / "attempts"
+            if attempts_dir.exists():
+                try:
+                    # Verify path is within artifact_root before removing
+                    if attempts_dir.resolve().is_relative_to(self.settings.artifact_root.resolve()):
+                        shutil.rmtree(attempts_dir)
+                except OSError:
+                    pass
 
 
 def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
@@ -369,55 +687,10 @@ def _format_local(timestamp_ms: int) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
-def _write_env_secret(env_path: Path, name: str, value: str) -> None:
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-    os.environ[name] = value
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
-    prefix = f"{name}="
-    next_line = f"{name}={value}"
-    replaced = False
-    next_lines: list[str] = []
-    for line in lines:
-        if line.startswith(prefix):
-            if not replaced:
-                next_lines.append(next_line)
-                replaced = True
-            continue
-        next_lines.append(line)
-    if not replaced:
-        next_lines.append(next_line)
-    env_path.write_text("\n".join(next_lines) + "\n", encoding="utf-8")
-
-
-def _repair_pass_item(changes: list[str]) -> ValidationItem:
-    return ValidationItem(
-        id="repair-loop-applied",
-        ruleId="REPAIR-001",
-        level="pass",
-        title="自动修复循环已执行",
-        description=f"后端修复了 IR 问题：{'; '.join(changes)}。",
-        importance="修复循环让模型输出的小偏差可以在确定性校验中被收敛。",
-        field="skill_ir",
+def _connection_provider(provider: ModelProviderConfig) -> ModelConnectionProvider:
+    return ModelConnectionProvider(
+        id=provider.id,
+        name=provider.name,
+        model=provider.defaultModel,
+        protocol=provider.protocol,
     )
-
-
-def _missing_provider_item() -> ValidationItem:
-    return ValidationItem(
-        id="provider-generation-missing",
-        ruleId="PROVIDER-001",
-        level="blocking",
-        title="缺少 generation Model Provider",
-        description="最新 PRD 要求模型调用前至少存在一个启用的 generation Provider。",
-        importance="生成链路必须通过统一 Model Provider 接口，不应绕过 Provider 配置。",
-        suggestion="通过 /api/model-providers 或 scripts/setup-llm.sh 配置 Claude 或 OpenAI-compatible Provider。",
-        blocksDownload=True,
-        field="modelProvider",
-    )
-
-
-def _provider_connection_risk(provider: ModelProviderConfig) -> str | None:
-    if provider.lastTest is None:
-        return "untested"
-    if provider.lastTest.status == "failed":
-        return f"test-failed:{provider.lastTest.failureCategory or 'unknown'}"
-    return None

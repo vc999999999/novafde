@@ -12,12 +12,12 @@ interface Props {
 export default function FormGroup({ label, required, hint, error, children }: Props) {
   return (
     <div className="mb-5">
-      <Label className={cn('text-[var(--text-sm)] text-secondary-foreground tracking-wide', required && 'after:content-["*"] after:text-error after:ml-0.5')}>
+      <Label className={cn(required && 'after:content-["*"] after:text-destructive after:ml-0.5')}>
         {label}
       </Label>
-      {children}
-      {hint && !error && <p className="text-[var(--text-sm)] text-muted-foreground mt-1 leading-snug">{hint}</p>}
-      {error && <p className="text-[var(--text-sm)] text-destructive mt-1">{error}</p>}
+      <div className="mt-1.5">{children}</div>
+      {hint && !error && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{hint}</p>}
+      {error && <p className="text-xs text-destructive mt-1.5">{error}</p>}
     </div>
   );
 }

@@ -1,15 +1,19 @@
 import type {
+  AppSettings,
   CliCommandHelp,
+  DiagnosticMetrics,
+  ErrorPattern,
   GenerationResult,
   HistoryItem,
+  ModelConnectionStatus,
   ModelProviderConfig,
   ModelProviderPayload,
   ProviderTestResult,
   QualityRule,
+  QualityEvaluationReport,
   SkillDraft,
+  SupplementAnswer,
 } from './types';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
 export class ApiError extends Error {
   status: number;
@@ -24,17 +28,21 @@ export class ApiError extends Error {
 }
 
 function apiUrl(path: string) {
-  return `${API_BASE_URL}${path}`;
+  return path;
 }
 
-async function readError(response: Response) {
+async function readError(response: Response): Promise<{ message: string; detail: unknown }> {
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('application/json')) {
-    const body = await response.json();
-    if (typeof body?.detail === 'string') return { message: body.detail, detail: body };
-    return { message: JSON.stringify(body.detail ?? body), detail: body };
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === 'string') return { message: body.detail, detail: body };
+      return { message: JSON.stringify(body.detail ?? body), detail: body };
+    } catch {
+      // JSON parse failed, fall through to text handling
+    }
   }
-  const text = await response.text();
+  const text = await response.text().catch(() => '');
   return { message: text || response.statusText, detail: text };
 }
 
@@ -44,21 +52,28 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(apiUrl(path), {
-    ...init,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(apiUrl(path), {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    const error = await readError(response);
-    throw new ApiError(response.status, error.message, error.detail);
+    if (!response.ok) {
+      const error = await readError(response);
+      throw new ApiError(response.status, error.message, error.detail);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
 }
 
 export function listHistory() {
@@ -69,8 +84,23 @@ export function listRules() {
   return apiRequest<QualityRule[]>('/api/rules');
 }
 
+export function getDiagnosticMetrics() {
+  return apiRequest<DiagnosticMetrics>('/api/diagnostics/metrics');
+}
+
+export function listErrorPatterns() {
+  return apiRequest<ErrorPattern[]>('/api/diagnostics/error-patterns');
+}
+
 export function listCliCommands() {
   return apiRequest<CliCommandHelp[]>('/api/cli/commands');
+}
+
+export function patchDraft(draftId: string, draft: SkillDraft) {
+  return apiRequest<SkillDraft>(`/api/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(draft),
+  });
 }
 
 export function createDraft(draft: SkillDraft) {
@@ -84,6 +114,43 @@ export function generateDraft(draftId: string) {
   return apiRequest<GenerationResult>(`/api/drafts/${encodeURIComponent(draftId)}/generate`, {
     method: 'POST',
   });
+}
+
+export function startGeneration(draftId: string) {
+  return apiRequest<GenerationResult>('/api/generations', {
+    method: 'POST',
+    body: JSON.stringify({
+      draftId,
+      qualityMode: 'strict',
+      maxRepairRounds: 3,
+    }),
+  });
+}
+
+export function getGeneration(generationId: string) {
+  return apiRequest<GenerationResult>(
+    `/api/generations/${encodeURIComponent(generationId)}`,
+  );
+}
+
+export function getGenerationQuality(generationId: string) {
+  return apiRequest<QualityEvaluationReport>(
+    `/api/generations/${encodeURIComponent(generationId)}/quality`,
+  );
+}
+
+export function submitGenerationSupplement(
+  generationId: string,
+  answers: SupplementAnswer[],
+  skip = false,
+) {
+  return apiRequest<GenerationResult>(
+    `/api/generations/${encodeURIComponent(generationId)}/supplement`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ answers, skip }),
+    },
+  );
 }
 
 export function regenerateGeneration(generationId: string) {
@@ -123,5 +190,20 @@ export function deleteModelProvider(providerId: string) {
 export function testModelProvider(providerId: string) {
   return apiRequest<ProviderTestResult>(`/api/model-providers/${encodeURIComponent(providerId)}/test`, {
     method: 'POST',
+  });
+}
+
+export function getModelConnectionStatus() {
+  return apiRequest<ModelConnectionStatus>('/api/providers/connection-status');
+}
+
+export function getSettings() {
+  return apiRequest<AppSettings>('/api/settings');
+}
+
+export function saveSettings(settings: AppSettings) {
+  return apiRequest<AppSettings>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
   });
 }

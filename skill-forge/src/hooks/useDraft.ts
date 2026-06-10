@@ -9,26 +9,10 @@ export function useDraft() {
     setDraft((prev) => ({ ...prev, ...updates, updatedAt: Date.now() }));
   }, []);
 
-  const updateTrigger = useCallback((updates: Partial<SkillDraft['trigger']>) => {
+  const updatePurpose = useCallback((updates: Partial<SkillDraft['purpose']>) => {
     setDraft((prev) => ({
       ...prev,
-      trigger: { ...prev.trigger, ...updates },
-      updatedAt: Date.now(),
-    }));
-  }, []);
-
-  const updateWorkflow = useCallback((updates: Partial<SkillDraft['workflow']>) => {
-    setDraft((prev) => ({
-      ...prev,
-      workflow: { ...prev.workflow, ...updates },
-      updatedAt: Date.now(),
-    }));
-  }, []);
-
-  const updateContext = useCallback((updates: Partial<SkillDraft['context']>) => {
-    setDraft((prev) => ({
-      ...prev,
-      context: { ...prev.context, ...updates },
+      purpose: { ...prev.purpose, ...updates },
       updatedAt: Date.now(),
     }));
   }, []);
@@ -41,14 +25,6 @@ export function useDraft() {
     }));
   }, []);
 
-  const updateOutputControl = useCallback((updates: Partial<SkillDraft['outputControl']>) => {
-    setDraft((prev) => ({
-      ...prev,
-      outputControl: { ...prev.outputControl, ...updates },
-      updatedAt: Date.now(),
-    }));
-  }, []);
-
   const resetDraft = useCallback(() => {
     setDraft(createBlankDraft());
   }, []);
@@ -57,11 +33,8 @@ export function useDraft() {
     draft,
     setDraft,
     updateDraft,
-    updateTrigger,
-    updateWorkflow,
-    updateContext,
+    updatePurpose,
     updateKnowledge,
-    updateOutputControl,
     resetDraft,
   };
 }

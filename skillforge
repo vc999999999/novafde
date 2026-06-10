@@ -13,10 +13,6 @@ Commands:
   skillforge doctor           Run sh scripts/doctor.sh
   skillforge config list      Show local Provider config with credential references only
   skillforge config set       Run sh scripts/setup-llm.sh
-  skillforge config test      Test Provider connection through the backend API
-  skillforge generate         Generate from a local brief JSON through the backend API
-  skillforge validate         Validate a local Skill folder
-  skillforge package          Package a local Skill folder
 
 All configuration writes declare their target paths. Commands that need network
 access say so before they run.
@@ -55,27 +51,14 @@ case "$COMMAND" in
         fi
         ;;
       set)
-        echo "Writing Provider config to config/providers.local.json and .env."
+        echo "Writing Provider config to config/providers.local.json."
         sh scripts/setup-llm.sh "$@"
         ;;
-      test)
-        echo "Network access may be used to test Provider connectivity."
-        echo "Use POST /api/model-providers/:id/test from the running backend."
-        ;;
       *)
-        echo "ERROR: unknown config command. Use list, set, or test." >&2
+        echo "ERROR: unknown config command. Use list or set." >&2
         exit 1
         ;;
     esac
-    ;;
-  generate)
-    echo "Use POST /api/drafts followed by POST /api/drafts/:id/generate, or provide this command in a future CLI extension."
-    ;;
-  validate)
-    echo "Use backend package validation APIs or tests for now; local folder validation will be added to the formal CLI."
-    ;;
-  package)
-    echo "Use the backend zip packager via the generation API for now; local packaging will be added to the formal CLI."
     ;;
   *)
     echo "ERROR: unknown command: $COMMAND" >&2

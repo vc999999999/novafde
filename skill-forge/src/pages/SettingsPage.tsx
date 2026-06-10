@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Toggle from '../components/Toggle';
 import {
   createModelProvider,
   deleteModelProvider,
+  getSettings,
   listModelProviders,
+  saveSettings,
   testModelProvider,
   updateModelProvider,
 } from '../api';
 import { LLM_PROVIDER_PRESETS, PROVIDER_PROTOCOLS } from '../data';
 import type {
   ApiKeyRef,
-  AppMode,
+  AppSettings,
   ConnectionTestResult,
   ModelProviderConfig,
   ModelProviderPayload,
@@ -25,7 +27,6 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
-import { Monitor, Cloud } from 'lucide-react';
 
 type ProviderForm = ModelProviderConfig & {
   apiKey: string;
@@ -40,10 +41,17 @@ const emptyProvider = (protocol: ProviderProtocol = 'openai-compatible'): ModelP
   protocol,
   baseUrl: protocol === 'claude' ? 'https://api.anthropic.com' : 'http://localhost:11434',
   apiKeyRef: { type: 'env', name: protocol === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY' },
-  defaultModel: protocol === 'claude' ? 'claude-sonnet-4-20250514' : 'llama3',
-  roles: ['generation', 'repair', 'validation-explanation'],
+  defaultModel: protocol === 'claude' ? 'claude-sonnet-4-6' : '',
+  roles: [
+    'generation',
+    'repair',
+    'activation-evaluation',
+    'implementation-evaluation',
+  ],
   timeoutMs: 120000,
   retries: 2,
+  inputPricePerMillionTokens: 0,
+  outputPricePerMillionTokens: 0,
   streaming: true,
   customHeaders: {},
   enabled: true,
@@ -64,6 +72,8 @@ function toPayload(provider: ProviderForm): ModelProviderPayload {
     roles: provider.roles,
     timeoutMs: provider.timeoutMs,
     retries: provider.retries,
+    inputPricePerMillionTokens: provider.inputPricePerMillionTokens,
+    outputPricePerMillionTokens: provider.outputPricePerMillionTokens,
     streaming: provider.streaming,
     customHeaders: provider.customHeaders,
     enabled: provider.enabled,
@@ -164,11 +174,11 @@ function ProviderEditor({
 
   return (
     <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
-      <div className="grid gap-4 grid-cols-2">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 [&>*]:space-y-1.5">
         <div className="col-span-2">
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">Quick fill Provider</Label>
+          <Label className="text-muted-foreground">Quick fill Provider</Label>
           <select
-            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
             value={selectedPresetIndex >= 0 ? String(selectedPresetIndex) : ''}
             onChange={(event) => {
@@ -193,18 +203,18 @@ function ProviderEditor({
               <option key={`${preset.label}-${preset.protocol}`} value={index}>{preset.label}</option>
             ))}
           </select>
-          <p className="text-[var(--text-sm)] text-muted-foreground mt-1 leading-snug">选择常用 Provider 后会自动填入协议、Base URL、模型和本地环境变量名。</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">选择常用 Provider 后会自动填入协议、Base URL、模型和本地环境变量名。</p>
         </div>
 
         <div className="col-span-2">
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">Provider 名称</Label>
+          <Label className="text-muted-foreground">Provider 名称</Label>
           <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="My Claude API" />
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">协议</Label>
+          <Label className="text-muted-foreground">协议</Label>
           <select
-            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
             value={form.protocol}
             onChange={(event) => {
@@ -214,7 +224,7 @@ function ProviderEditor({
                 protocol,
                 baseUrl: protocol === 'claude' ? 'https://api.anthropic.com' : 'http://localhost:11434',
                 apiKeyRef: { type: 'env', name: protocol === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY' },
-                defaultModel: protocol === 'claude' ? 'claude-sonnet-4-20250514' : 'llama3',
+                defaultModel: protocol === 'claude' ? 'claude-sonnet-4-6' : '',
               }));
             }}
           >
@@ -222,13 +232,13 @@ function ProviderEditor({
               <option key={protocol.value} value={protocol.value}>{protocol.label}</option>
             ))}
           </select>
-          <p className="text-[var(--text-sm)] text-muted-foreground mt-1 leading-snug">
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">
             {PROVIDER_PROTOCOLS.find((protocol) => protocol.value === form.protocol)?.desc}
           </p>
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">API Key</Label>
+          <Label className="text-muted-foreground">API Key</Label>
           <div className="flex gap-2">
             <Input
               type={showApiKey ? 'text' : 'password'}
@@ -242,14 +252,14 @@ function ProviderEditor({
               {showApiKey ? '隐藏' : '显示'}
             </Button>
           </div>
-          <p className="text-[var(--text-sm)] text-muted-foreground mt-1 leading-snug">保存时写入本地 .env，后端响应不会返回明文 key。</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">优先保存到系统钥匙串；不可用时写入本地加密密钥库。后端响应不会返回明文。</p>
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">模型</Label>
+          <Label className="text-muted-foreground">模型</Label>
           {modelOptions.length > 0 ? (
             <select
-              className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+              className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
               style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
               value={isCustomModel || !form.defaultModel ? '__custom__' : form.defaultModel}
               onChange={(event) => {
@@ -269,14 +279,14 @@ function ProviderEditor({
             <Input
               value={form.defaultModel}
               onChange={(e) => set('defaultModel', e.target.value)}
-              placeholder={form.protocol === 'claude' ? 'claude-sonnet-4-20250514' : 'gpt-4o'}
+              placeholder={form.protocol === 'claude' ? 'claude-sonnet-4-6' : '输入 Provider 支持的模型 ID'}
             />
           )}
         </div>
 
         {(isCustomModel || (modelOptions.length > 0 && !form.defaultModel)) && (
           <div>
-            <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">自定义模型 ID</Label>
+            <Label className="text-muted-foreground">自定义模型 ID</Label>
             <Input
               value={form.defaultModel}
               onChange={(e) => set('defaultModel', e.target.value)}
@@ -286,35 +296,60 @@ function ProviderEditor({
         )}
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">Base URL</Label>
+          <Label className="text-muted-foreground">Base URL</Label>
           <Input value={form.baseUrl} onChange={(e) => set('baseUrl', e.target.value)} placeholder="https://api.anthropic.com" />
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">保存到环境变量</Label>
+          <Label className="text-muted-foreground">密钥引用名称</Label>
           <Input value={form.apiKeyRef.name} onChange={(e) => setApiKeyRef({ name: e.target.value })} placeholder="ANTHROPIC_API_KEY" />
-          <p className="text-[var(--text-sm)] text-muted-foreground mt-1 leading-snug">用于后续启动时从 .env 重新加载。</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">仅作为本地钥匙串或加密密钥库中的索引名称。</p>
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">超时 (ms)</Label>
+          <Label className="text-muted-foreground">超时 (ms)</Label>
           <Input type="number" value={form.timeoutMs} onChange={(e) => set('timeoutMs', Number(e.target.value))} min={5000} step={5000} />
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">重试次数</Label>
+          <Label className="text-muted-foreground">重试次数</Label>
           <Input type="number" value={form.retries} onChange={(e) => set('retries', Number(e.target.value))} min={0} max={5} />
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">启用流式返回</Label>
+          <Label className="text-muted-foreground">输入价格 (USD / 1M tokens)</Label>
+          <Input
+            type="number"
+            value={form.inputPricePerMillionTokens}
+            onChange={(e) => set('inputPricePerMillionTokens', Number(e.target.value))}
+            min={0}
+            step={0.01}
+          />
+        </div>
+
+        <div>
+          <Label className="text-muted-foreground">输出价格 (USD / 1M tokens)</Label>
+          <Input
+            type="number"
+            value={form.outputPricePerMillionTokens}
+            onChange={(e) => set('outputPricePerMillionTokens', Number(e.target.value))}
+            min={0}
+            step={0.01}
+          />
+          <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            可留 0 表示未知；填写后用于本地成本统计和单任务成本上限。
+          </p>
+        </div>
+
+        <div>
+          <Label className="text-muted-foreground">启用流式返回</Label>
           <div className="mt-2">
             <Switch checked={form.streaming} onCheckedChange={(checked) => set('streaming', checked)} />
           </div>
         </div>
 
         <div>
-          <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">启用 Provider</Label>
+          <Label className="text-muted-foreground">启用 Provider</Label>
           <div className="mt-2">
             <Switch checked={form.enabled} onCheckedChange={(checked) => set('enabled', checked)} />
           </div>
@@ -332,7 +367,7 @@ function ProviderEditor({
         </Button>
         <TestBadge result={testResult} />
         {testResult.status === 'error' && testResult.errorMessage && (
-          <span className="text-[var(--text-sm)] text-destructive m-0">{testResult.errorMessage}</span>
+          <span className="text-xs text-destructive m-0">{testResult.errorMessage}</span>
         )}
       </div>
 
@@ -357,7 +392,7 @@ function ProviderEditor({
   );
 }
 
-export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (mode: AppMode) => void; mode?: AppMode }) {
+export default function SettingsPage() {
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [editingProvider, setEditingProvider] = useState<ModelProviderConfig | null>(null);
   const [defaultGenerateProvider, setDefaultGenerateProvider] = useState('');
@@ -368,6 +403,8 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const settingsLoaded = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
 
@@ -375,7 +412,18 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
     setLoading(true);
     setError(null);
     try {
-      setProviders(await listModelProviders());
+      const [loadedProviders, loadedSettings] = await Promise.all([
+        listModelProviders(),
+        getSettings().catch(() => null),
+      ]);
+      setProviders(loadedProviders);
+      if (loadedSettings && !settingsLoaded.current) {
+        settingsLoaded.current = true;
+        setDefaultGenerateProvider(loadedSettings.defaultGenerateProvider);
+        setDefaultRepairProvider(loadedSettings.defaultRepairProvider);
+        setDefaultValidateProvider(loadedSettings.defaultValidateProvider);
+        setBlockOnMissingConfig(loadedSettings.blockOnMissingConfig);
+      }
     } catch (err) {
       setError(messageFromError(err));
     } finally {
@@ -387,7 +435,36 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
     void loadProviders();
   }, [loadProviders]);
 
+  // Clean up pending save timer on unmount
   useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  // Debounced save of settings whenever they change
+  const debouncedSaveSettings = useCallback((settings: AppSettings) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveSettings(settings).catch((err) => {
+        setError(messageFromError(err));
+      });
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded.current) return;
+    debouncedSaveSettings({
+      defaultGenerateProvider,
+      defaultRepairProvider,
+      defaultValidateProvider,
+      blockOnMissingConfig,
+    });
+  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, blockOnMissingConfig, debouncedSaveSettings]);
+
+  // Auto-select first enabled provider if current selection is invalid
+  useEffect(() => {
+    if (!settingsLoaded.current) return;
     const firstProvider = enabledProviders[0]?.id ?? '';
     if (!enabledProviders.some((provider) => provider.id === defaultGenerateProvider)) setDefaultGenerateProvider(firstProvider);
     if (!enabledProviders.some((provider) => provider.id === defaultRepairProvider)) setDefaultRepairProvider(firstProvider);
@@ -416,6 +493,7 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
         return [saved, ...prev];
       });
       setEditingProvider(null);
+      window.dispatchEvent(new Event('skillforge-provider-changed'));
     } catch (err) {
       setError(messageFromError(err));
     } finally {
@@ -424,10 +502,12 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
   }, [providers]);
 
   const handleDeleteProvider = useCallback(async (id: string) => {
+    if (!window.confirm('确认删除此 Provider？此操作不可撤销。')) return;
     setError(null);
     try {
       await deleteModelProvider(id);
       setProviders((prev) => prev.filter((provider) => provider.id !== id));
+      window.dispatchEvent(new Event('skillforge-provider-changed'));
     } catch (err) {
       setError(messageFromError(err));
     }
@@ -448,6 +528,7 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
       const result = await testModelProvider(id);
       setTestResults((prev) => ({ ...prev, [id]: toConnectionResult(result) }));
       await loadProviders();
+      window.dispatchEvent(new Event('skillforge-provider-changed'));
     } catch (err) {
       setTestResults((prev) => ({
         ...prev,
@@ -460,8 +541,8 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
     return (
       <div className="flex flex-col flex-1">
         <section className="mb-5">
-          <p className="mb-2 text-[12px] tracking-[0.22em] uppercase text-muted-foreground">设置</p>
-          <h1 className="text-[var(--text-2xl)] font-semibold leading-tight">{persistedEditingProvider ? '编辑 Provider' : '新增 Provider'}</h1>
+          <p className="mb-2 text-xs tracking-[0.22em] uppercase text-muted-foreground">设置</p>
+          <h1 className="text-3xl font-semibold leading-tight">{persistedEditingProvider ? '编辑 Provider' : '新增 Provider'}</h1>
         </section>
 
         {error && (
@@ -486,24 +567,9 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
   return (
     <div className="flex flex-col flex-1">
       <section className="mb-5">
-        <p className="mb-2 text-[12px] tracking-[0.22em] uppercase text-muted-foreground">设置</p>
-        <h1 className="text-[var(--text-2xl)] font-semibold leading-tight">设置</h1>
+        <p className="mb-2 text-xs tracking-[0.22em] uppercase text-muted-foreground">设置</p>
+        <h1 className="text-3xl font-semibold leading-tight">设置</h1>
       </section>
-
-      {onModeChange && (
-        <div className="mb-5 p-4 rounded-[14px] border border-panel-border bg-gradient-to-b from-white/[0.035] to-white/[0.01]">
-          <p className="text-[15px] font-semibold text-foreground mb-2">运行模式</p>
-          <p className="text-[var(--text-sm)] text-muted-foreground mb-3">本地模式在本机运行，服务器模式部署到远程。切换后页面数据不变。</p>
-          <div className="flex gap-3">
-            <Button variant={mode === 'local' ? 'default' : 'outline'} onClick={() => onModeChange?.('local')} type="button">
-              <Monitor className="size-4 mr-1.5" /> 本地使用
-            </Button>
-            <Button variant={mode === 'server' ? 'default' : 'outline'} onClick={() => onModeChange?.('server')} type="button">
-              <Cloud className="size-4 mr-1.5" /> 服务器部署
-            </Button>
-          </div>
-        </div>
-      )}
 
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -514,10 +580,10 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
       <div className="flex flex-col gap-4 max-w-[780px]">
         <Card className="mb-6 bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
           <div className="flex justify-between items-center mb-3">
-            <p className="mb-0 text-[12px] tracking-[0.18em] uppercase text-muted-foreground">模型 Provider</p>
+            <p className="mb-0 text-xs tracking-[0.18em] uppercase text-muted-foreground">模型 Provider</p>
             <Button variant="outline" size="sm" onClick={handleAddProvider} type="button">+ 新增</Button>
           </div>
-          <p className="text-[var(--text-sm)] text-muted-foreground my-0 mb-4">配置 Claude 协议或 OpenAI-compatible 协议的大模型供应商</p>
+          <p className="text-xs text-muted-foreground my-0 mb-4">配置 Claude 协议或 OpenAI-compatible 协议的大模型供应商</p>
 
           {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">正在从后端加载 Provider...</div>}
           {!loading && providers.length === 0 && (
@@ -531,7 +597,7 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
               <div key={provider.id} className="flex items-center justify-between gap-3 p-3 px-4 rounded-[var(--radius-md)] border border-panel-border bg-surface mb-2 transition-colors hover:border-white/15">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[var(--text-base)] font-semibold">{provider.name || '未命名'}</span>
+                    <span className="text-sm font-semibold">{provider.name || '未命名'}</span>
                     <Badge className={cn(
                       'text-[11px] tracking-widest uppercase gap-1.5',
                       provider.enabled
@@ -542,12 +608,12 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
                       {provider.enabled ? '启用' : '未启用'}
                     </Badge>
                   </div>
-                  <div className="text-[12px] text-tertiary font-mono">
+                  <div className="text-xs text-tertiary font-mono">
                     {provider.protocol === 'claude' ? 'Claude' : 'OpenAI-compat'} · {provider.baseUrl}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button variant="outline" size="sm" onClick={() => setEditingProvider(provider)} type="button">编辑</Button>
                   <Button
                     variant="outline"
@@ -574,13 +640,13 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
         </Card>
 
         <Card className="mb-6 bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
-          <p className="text-[12px] tracking-[0.18em] uppercase text-muted-foreground mb-2">默认策略</p>
-          <p className="text-[var(--text-sm)] text-muted-foreground my-0 mb-4">当前生成链路会使用第一个启用且具备 generation 角色的后端 Provider</p>
+          <p className="text-xs tracking-[0.18em] uppercase text-muted-foreground mb-2">默认策略</p>
+          <p className="text-xs text-muted-foreground my-0 mb-4">当前生成链路会使用第一个启用且具备 generation 角色的后端 Provider</p>
           <div className="flex flex-col gap-4">
-            <div className="mb-0">
-              <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">生成模型</Label>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">生成模型</Label>
               <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultGenerateProvider}
                 onChange={(event) => setDefaultGenerateProvider(event.target.value)}
@@ -591,10 +657,10 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
                 {enabledProviders.length === 0 && <option value="">无可用 Provider</option>}
               </select>
             </div>
-            <div className="mb-0">
-              <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">修复模型</Label>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">修复模型</Label>
               <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultRepairProvider}
                 onChange={(event) => setDefaultRepairProvider(event.target.value)}
@@ -605,10 +671,10 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
                 {enabledProviders.length === 0 && <option value="">无可用 Provider</option>}
               </select>
             </div>
-            <div className="mb-0">
-              <Label className="text-[var(--text-sm)] text-muted-foreground tracking-wide">校验辅助模型</Label>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">校验辅助模型</Label>
               <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-[var(--text-base)] cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
+                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultValidateProvider}
                 onChange={(event) => setDefaultValidateProvider(event.target.value)}
@@ -624,8 +690,8 @@ export default function SettingsPage({ onModeChange, mode }: { onModeChange?: (m
         </Card>
 
         <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
-          <p className="text-[12px] tracking-[0.18em] uppercase text-muted-foreground mb-2">存储</p>
-          <p className="text-[var(--text-sm)] text-muted-foreground my-0">草稿、Provider 和生成记录由本地后端持久化到 SQLite 与 artifact 目录</p>
+          <p className="text-xs tracking-[0.18em] uppercase text-muted-foreground mb-2">存储</p>
+          <p className="text-xs text-muted-foreground my-0">草稿、Provider 和生成记录由本地后端持久化到 SQLite 与 artifact 目录</p>
         </Card>
       </div>
     </div>

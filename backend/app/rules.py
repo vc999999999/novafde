@@ -1,21 +1,49 @@
 from __future__ import annotations
 
 
-RULE_PACK_VERSION = "2026.06.08"
+RULE_PACK_VERSION = "2026.06.10"
 
 RULES = [
     {
-        "id": "BRIEF-001",
+        "id": "NAME-001",
         "category": "brief-normalization",
-        "title": "触发意图必须明确",
-        "description": "Skill Brief 必须包含用户意图，避免 Agent 只能根据模糊摘要生成 Skill。",
+        "title": "Skill 名称必须填写",
+        "description": "用户必须提供可识别的 Skill 名称，文件夹名称由系统自动生成。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PURPOSE-001",
+        "category": "brief-normalization",
+        "title": "使用时机必须明确",
+        "description": "用户必须说明什么时候需要使用这个 Skill，由 Skill Creator 派生触发描述。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PURPOSE-002",
+        "category": "brief-normalization",
+        "title": "目标结果必须明确",
+        "description": "用户必须说明这个 Skill 最终需要得到什么结果。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PROCESS-001",
+        "category": "workflow-orchestration",
+        "title": "必须提供大致执行流程",
+        "description": "用户提供主要阶段，Skill Creator 负责扩展详细步骤字段。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PROCESS-002",
+        "category": "workflow-orchestration",
+        "title": "必须提供完成标准",
+        "description": "完成标准将成为工作流验证和质量门槛。",
         "severity": "blocking",
     },
     {
         "id": "WF-001",
         "category": "workflow-orchestration",
         "title": "工作流至少包含一个完整步骤",
-        "description": "Skill 必须体现可执行流程，每个步骤应包含动作、输入、输出、验证和失败处理。",
+        "description": "Skill Creator 生成的每个步骤必须包含动作、输入、输出、验证和失败处理。",
         "severity": "blocking",
     },
     {
@@ -52,6 +80,27 @@ RULES = [
         "title": "生成目标平台安装说明",
         "description": "canonical Skill 包之外应包含各平台安装说明，避免复制三套 Skill。",
         "severity": "warning",
+    },
+    {
+        "id": "KNOW-001",
+        "category": "unknown-knowledge",
+        "title": "必须包含专业信息",
+        "description": "用户必须提供 Agent 需要知道的专业信息、业务经验或领域知识。",
+        "severity": "blocking",
+    },
+    {
+        "id": "KNOW-002",
+        "category": "pitfalls",
+        "title": "必须包含常见错误或反例",
+        "description": "常见错误和反例必须由用户提供，不能由 Agent 替用户猜测。",
+        "severity": "blocking",
+    },
+    {
+        "id": "RULE-001",
+        "category": "mandatory-rules",
+        "title": "必须包含强制规则",
+        "description": "强制规则拥有最高优先级，补充说明和生成器都不能覆盖。",
+        "severity": "blocking",
     },
     {
         "id": "PROVIDER-001",

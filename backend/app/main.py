@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -7,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.models import (
+    AppSettings,
+    GenerationCreateRequest,
     GenerationResult,
     ModelProviderConfig,
     ModelProviderConfigCreate,
@@ -14,15 +17,38 @@ from app.models import (
     ProviderTestResult,
     SkillDraft,
     SkillDraftCreate,
+    SupplementRequest,
 )
+from app.agent import SkillAgentRuntime
 from app.service import SkillForgeService
 from app.settings import Settings
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+# Only these SkillDraft fields may be updated via PATCH.
+# id, status, createdAt, updatedAt are always server-controlled.
+PATCHABLE_DRAFT_FIELDS: set[str] = {
+    "name",
+    "displayName",
+    "targetPlatforms",
+    "purpose",
+    "knowledge",
+    "supplement",
+}
+
+
+def create_app(
+    settings: Settings | None = None,
+    agents: SkillAgentRuntime | None = None,
+) -> FastAPI:
     resolved_settings = settings or Settings()
-    service = SkillForgeService(resolved_settings)
-    app = FastAPI(title="SkillForge Backend", version="0.1.0")
+    service = SkillForgeService(resolved_settings, agents=agents)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        service.close()
+
+    app = FastAPI(title="SkillForge Backend", version="0.2.0", lifespan=lifespan)
     app.state.service = service
 
     app.add_middleware(
@@ -33,9 +59,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    if "*" in resolved_settings.cors_origins:
+        import logging
+        logging.getLogger(__name__).warning(
+            "CORS allow_origins='*' with allow_credentials=True is insecure. "
+            "Restrict cors_origins in settings."
+        )
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/runtime")
+    def runtime() -> dict[str, str | bool]:
+        return {
+            "mode": "local",
+            "database": "sqlite",
+            "loopbackOnly": True,
+            "bindHost": resolved_settings.bind_host,
+        }
+
+    @app.get("/api/providers/connection-status")
+    def provider_connection_status() -> dict[str, Any]:
+        return service.connection_status().model_dump(mode="json")
 
     @app.post("/api/drafts", response_model=SkillDraft, status_code=201)
     def create_draft(payload: SkillDraftCreate) -> SkillDraft:
@@ -54,14 +100,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.patch("/api/drafts/{draft_id}", response_model=SkillDraft)
     def patch_draft(draft_id: str, updates: dict[str, Any]) -> SkillDraft:
-        draft = service.patch_draft(draft_id, updates)
+        # Only allow known SkillDraft fields through to prevent callers
+        # from overwriting server-controlled fields before the merge.
+        filtered = {k: v for k, v in updates.items() if k in PATCHABLE_DRAFT_FIELDS}
+        draft = service.patch_draft(draft_id, filtered)
         if draft is None:
             raise HTTPException(status_code=404, detail="Draft not found")
         return draft
 
     @app.post("/api/drafts/{draft_id}/generate", response_model=GenerationResult, status_code=201)
     def generate(draft_id: str) -> GenerationResult:
+        if not service.model_is_connected():
+            raise HTTPException(
+                status_code=409,
+                detail="Model Provider is not connected and tested",
+            )
         generation = service.generate(draft_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        return generation
+
+    @app.post("/api/generations", response_model=GenerationResult, status_code=201)
+    def create_generation(payload: GenerationCreateRequest) -> GenerationResult:
+        if not service.model_is_connected():
+            raise HTTPException(
+                status_code=409,
+                detail="Model Provider is not connected and tested",
+            )
+        generation = service.start_generation(
+            payload.draftId,
+            max_repair_rounds=payload.maxRepairRounds,
+            target_platforms=payload.targetPlatforms,
+        )
         if generation is None:
             raise HTTPException(status_code=404, detail="Draft not found")
         return generation
@@ -72,6 +142,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if generation is None:
             raise HTTPException(status_code=404, detail="Generation not found")
         return generation
+
+    @app.get("/api/generations/{generation_id}/quality")
+    def generation_quality(generation_id: str) -> dict[str, Any]:
+        payload = service.quality_payload(generation_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="Quality report not found")
+        return payload
+
+    @app.get("/api/generations/{generation_id}/attempts")
+    def generation_attempts(generation_id: str) -> list[dict[str, Any]]:
+        attempts = service.attempts(generation_id)
+        if attempts is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        return attempts
+
+    @app.get("/api/generations/{generation_id}/trace")
+    def generation_trace(generation_id: str) -> list[dict[str, Any]]:
+        events = service.run_events(generation_id)
+        if events is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        return events
+
+    @app.get("/api/diagnostics/error-patterns")
+    def error_patterns() -> list[dict[str, Any]]:
+        return service.error_patterns()
+
+    @app.get("/api/diagnostics/metrics")
+    def diagnostics_metrics() -> dict[str, Any]:
+        return service.diagnostics_metrics()
+
+    @app.post(
+        "/api/generations/{generation_id}/supplement",
+        response_model=GenerationResult,
+        status_code=202,
+    )
+    def submit_supplement(
+        generation_id: str,
+        payload: SupplementRequest,
+    ) -> GenerationResult:
+        generation = service.get_generation(generation_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        if generation.status != "awaiting_user_input":
+            if service.storage.list_supplements(generation_id):
+                return generation
+            raise HTTPException(
+                status_code=409,
+                detail="Generation is not awaiting user input",
+            )
+        resumed = service.submit_supplement(generation_id, payload)
+        if resumed is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        return resumed
 
     @app.get("/api/generations/{generation_id}/preview")
     def preview(generation_id: str) -> dict[str, Any]:
@@ -96,6 +219,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/generations/{generation_id}/regenerate", response_model=GenerationResult, status_code=201)
     def regenerate(generation_id: str) -> GenerationResult:
+        if not service.model_is_connected():
+            raise HTTPException(
+                status_code=409,
+                detail="Model Provider is not connected and tested",
+            )
         generation = service.get_generation(generation_id)
         if generation is None:
             raise HTTPException(status_code=404, detail="Generation not found")
@@ -150,6 +278,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/cli/commands")
     def cli_commands() -> list[dict[str, Any]]:
         return [command.model_dump(mode="json") for command in service.cli_commands()]
+
+    @app.get("/api/settings", response_model=AppSettings)
+    def get_settings() -> AppSettings:
+        return service.get_settings()
+
+    @app.put("/api/settings", response_model=AppSettings)
+    def save_settings(payload: AppSettings) -> AppSettings:
+        return service.save_settings(payload)
 
     return app
 

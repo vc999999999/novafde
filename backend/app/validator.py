@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
-from app.models import SkillIR, ValidationItem
+from app.models import QualityIssue, SkillBrief, SkillIR, ValidationItem
 from app.utils import ensure_safe_relative_path
+
+
+def _safe_id_component(text: str) -> str:
+    """Sanitize a string for use in a validation item ID."""
+    return re.sub(r'[^a-zA-Z0-9._-]', '-', text)[:64]
 
 
 def validate_ir(ir: SkillIR) -> list[ValidationItem]:
@@ -64,18 +70,76 @@ def validate_ir(ir: SkillIR) -> list[ValidationItem]:
             )
         )
 
-    if not ir.workflow.steps:
+    incomplete_steps = [
+        step.id or str(index + 1)
+        for index, step in enumerate(ir.workflow.steps)
+        if not all(
+            [
+                step.purpose.strip(),
+                step.action.strip(),
+                step.input.strip(),
+                step.output.strip(),
+                step.validation.strip(),
+                step.failureHandling.strip(),
+            ]
+        )
+    ]
+    if not ir.workflow.steps or incomplete_steps:
+        detail = (
+            "Skill IR 至少需要一个工作流步骤。"
+            if not ir.workflow.steps
+            else f"以下工作流步骤字段不完整：{', '.join(incomplete_steps)}。"
+        )
         items.append(
             ValidationItem(
                 id="ir-workflow-steps",
                 ruleId="WF-001",
                 level="blocking",
-                title="IR 缺少工作流步骤",
-                description="Skill IR 至少需要一个工作流步骤。",
-                importance="没有步骤的 Skill 无法指导 Agent 执行流程。",
-                suggestion="重新生成包含步骤的 Skill IR。",
+                title="IR 工作流步骤不完整",
+                description=detail,
+                importance="缺失动作、输入、输出、验证或失败处理会让 Agent 执行中断。",
+                suggestion="让 Skill Creator 重新生成完整的工作流步骤。",
                 blocksDownload=True,
                 field="workflow.steps",
+            )
+        )
+    else:
+        items.append(
+            ValidationItem(
+                id="ir-workflow-steps-pass",
+                ruleId="WF-001",
+                level="pass",
+                title="IR 工作流步骤完整",
+                description=f"Skill IR 包含 {len(ir.workflow.steps)} 个完整步骤。",
+                importance="完整步骤保证 Skill 可执行且可验证。",
+                field="workflow.steps",
+            )
+        )
+
+    if not ir.quality.hardRestrictions:
+        items.append(
+            ValidationItem(
+                id="ir-mandatory-rules",
+                ruleId="RULE-001",
+                level="blocking",
+                title="IR 缺少强制规则",
+                description="Skill Creator 未保留用户提供的必须遵守规则。",
+                importance="强制规则优先级最高，不能在生成过程中丢失。",
+                suggestion="恢复 Brief 中的 mandatoryRules 并重新生成。",
+                blocksDownload=True,
+                field="quality.hardRestrictions",
+            )
+        )
+    else:
+        items.append(
+            ValidationItem(
+                id="ir-mandatory-rules-pass",
+                ruleId="RULE-001",
+                level="pass",
+                title="IR 已保留强制规则",
+                description=f"Skill IR 包含 {len(ir.quality.hardRestrictions)} 条强制规则。",
+                importance="强制规则会以最高优先级进入生成的 Skill。",
+                field="quality.hardRestrictions",
             )
         )
     return items
@@ -103,7 +167,8 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
         return items
 
     try:
-        frontmatter = parse_frontmatter(skill_md_path.read_text(encoding="utf-8"))
+        skill_md_content = skill_md_path.read_text(encoding="utf-8")
+        frontmatter = parse_frontmatter(skill_md_content)
         name = frontmatter.get("name")
         description = frontmatter.get("description")
         frontmatter_ok = name == ir.skill.name and isinstance(description, str) and _looks_like_trigger_description(description)
@@ -148,7 +213,7 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
         except ValueError:
             items.append(
                 ValidationItem(
-                    id=f"pkg-reference-unsafe-{relative_path}",
+                    id=f"pkg-reference-unsafe-{_safe_id_component(relative_path)}",
                     ruleId="PKG-002",
                     level="blocking",
                     title="引用路径不安全",
@@ -163,7 +228,7 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
         if not (skill_dir / safe_path).exists():
             items.append(
                 ValidationItem(
-                    id=f"pkg-reference-missing-{safe_path}",
+                    id=f"pkg-reference-missing-{_safe_id_component(safe_path)}",
                     ruleId="PKG-001",
                     level="blocking",
                     title="引用文件不存在",
@@ -175,7 +240,7 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
                 )
             )
 
-    skill_md = skill_md_path.read_text(encoding="utf-8")
+    skill_md = skill_md_content
     if len(skill_md) > 12_000:
         items.append(
             ValidationItem(
@@ -207,9 +272,10 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
 
 
 def parse_frontmatter(markdown: str) -> dict:
-    if not markdown.startswith("---\n"):
+    normalized = markdown.replace("\r\n", "\n")
+    if not normalized.startswith("---\n"):
         raise ValueError("missing frontmatter")
-    parts = markdown.split("---", 2)
+    parts = normalized.split("---\n", 2)
     if len(parts) < 3:
         raise ValueError("unterminated frontmatter")
     data = yaml.safe_load(parts[1]) or {}
@@ -219,8 +285,26 @@ def parse_frontmatter(markdown: str) -> dict:
 
 
 def _looks_like_trigger_description(description: str) -> bool:
-    lowered = description.strip().lower()
-    return lowered.startswith("use when") and len(lowered.split()) >= 5
+    text = description.strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    # English trigger patterns
+    if lowered.startswith("use when") and len(lowered.split()) >= 5:
+        return True
+    # CJK trigger patterns (Chinese/Japanese/Korean)
+    has_cjk = any("一" <= ch <= "鿿" for ch in text)
+    if has_cjk and len(text) >= 10:
+        cjk_triggers = ["当用户", "适用于", "当用户需要", "当用户想要", "当用户希望", "当……时", "当...时"]
+        if any(lowered.startswith(t) for t in cjk_triggers):
+            return True
+        # Also accept if it contains trigger-like language and is substantial
+        if any(kw in lowered for kw in ["当用户", "用户需要", "用户想要", "用户希望"]):
+            return True
+    # Generic "when" pattern (case insensitive)
+    if lowered.startswith("when ") and len(lowered.split()) >= 5:
+        return True
+    return False
 
 
 def blocking_count(items: list[ValidationItem]) -> int:
@@ -229,3 +313,86 @@ def blocking_count(items: list[ValidationItem]) -> int:
 
 def warning_count(items: list[ValidationItem]) -> int:
     return sum(1 for item in items if item.level == "warning")
+
+
+def evaluate_validation(
+    package_root: Path,
+    ir: SkillIR,
+    brief: SkillBrief,
+) -> tuple[list[ValidationItem], list[QualityIssue], float]:
+    items = [*validate_ir(ir), *validate_rendered_package(package_root, ir)]
+    missing_rules = [
+        rule for rule in brief.mandatoryRules if rule not in ir.quality.hardRestrictions
+    ]
+    if missing_rules:
+        items.append(
+            ValidationItem(
+                id="mandatory-rules-lost",
+                ruleId="RULE-001",
+                level="blocking",
+                title="用户强制规则在生成中丢失",
+                description=f"缺少规则：{'；'.join(missing_rules)}",
+                importance="用户强制规则必须完整保留。",
+                suggestion="恢复原始 SkillBrief 中的强制规则。",
+                blocksDownload=True,
+                field="quality.hardRestrictions",
+            )
+        )
+
+    skill_md_path = package_root / ir.skill.name / "SKILL.md"
+    if skill_md_path.exists():
+        line_count = len(skill_md_path.read_text(encoding="utf-8").splitlines())
+        if line_count > 500:
+            items.append(
+                ValidationItem(
+                    id="skill-md-line-count",
+                    ruleId="PKG-003",
+                    level="warning",
+                    title="SKILL.md 超过 500 行",
+                    description=f"当前 SKILL.md 共 {line_count} 行。",
+                    importance="过长主文件会增加初始上下文负担。",
+                    suggestion="将详细知识下沉到 references/。",
+                    field="SKILL.md",
+                )
+            )
+    if len(ir.skill.description) > 1024:
+        items.append(
+            ValidationItem(
+                id="description-too-long",
+                ruleId="TRIG-002",
+                level="blocking",
+                title="description 超过长度限制",
+                description="frontmatter.description 不得超过 1024 个字符。",
+                importance="描述必须保持可发现且符合 Skill 规范。",
+                suggestion="保留触发条件并删除实现细节。",
+                blocksDownload=True,
+                field="skill.description",
+            )
+        )
+
+    issues = [_quality_issue_from_validation(item) for item in items if item.level != "pass"]
+    blocker_count = sum(
+        issue.severity in {"security_blocker", "structure_blocker"}
+        for issue in issues
+    )
+    warning_total = sum(issue.severity == "warning" for issue in issues)
+    score = max(0.0, 100.0 - blocker_count * 40.0 - warning_total * 5.0)
+    return items, issues, score
+
+
+def _quality_issue_from_validation(item: ValidationItem) -> QualityIssue:
+    if item.level == "blocking":
+        severity = "security_blocker" if item.ruleId == "PKG-002" else "structure_blocker"
+    else:
+        severity = "warning"
+    return QualityIssue(
+        issueId=item.id,
+        source="validation",
+        criterion=item.ruleId,
+        severity=severity,
+        reason=item.description,
+        evidence=[item.field] if item.field else [],
+        suggestion=item.suggestion,
+        affectedPaths=[item.field] if item.field else [],
+        autoFixable=item.ruleId in {"TRIG-001", "PKG-001"},
+    )

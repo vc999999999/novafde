@@ -6,14 +6,15 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.models import ModelProviderConfig
+from app.models import ModelProviderConfig, ProviderTestResult
 from app.provider_runtime import ModelProviderRuntime
 from app.settings import Settings
 from tests.test_api_pipeline import build_draft_payload
+from tests.agent_support import build_test_agents
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(Settings(data_dir=tmp_path)))
+    return TestClient(create_app(Settings(data_dir=tmp_path), agents=build_test_agents()))
 
 
 def build_provider_payload(protocol: str = "claude") -> dict:
@@ -64,9 +65,9 @@ def test_provider_config_api_masks_keys_and_rejects_sensitive_header(tmp_path: P
 
 
 def test_provider_create_accepts_user_key_without_leaking_it(tmp_path: Path, monkeypatch) -> None:
-    env_path = tmp_path / ".env"
     monkeypatch.delenv("SKILLFORGE_UI_TEST_API_KEY", raising=False)
-    client = TestClient(create_app(Settings(data_dir=tmp_path / "data", env_path=env_path)))
+    settings = Settings(data_dir=tmp_path / "data", use_system_keyring=False)
+    client = TestClient(create_app(settings))
 
     payload = {
         **build_provider_payload("claude"),
@@ -79,8 +80,10 @@ def test_provider_create_accepts_user_key_without_leaking_it(tmp_path: Path, mon
     provider = response.json()
     assert provider["apiKeyRef"] == {"type": "env", "name": "SKILLFORGE_UI_TEST_API_KEY"}
     assert "secret-token-from-ui" not in json.dumps(provider)
-    assert "SKILLFORGE_UI_TEST_API_KEY=secret-token-from-ui" in env_path.read_text(encoding="utf-8")
-    assert os.environ["SKILLFORGE_UI_TEST_API_KEY"] == "secret-token-from-ui"
+    assert b"secret-token-from-ui" not in settings.encrypted_secrets_path.read_bytes()
+    # After fix: API keys are no longer written to os.environ for security.
+    # Keys are only stored in SecretStore and loaded on demand.
+    assert os.environ.get("SKILLFORGE_UI_TEST_API_KEY") is None
 
 
 def test_app_loads_local_provider_config_file(tmp_path: Path) -> None:
@@ -120,28 +123,35 @@ def test_generation_is_blocked_without_enabled_generation_provider(tmp_path: Pat
     assert draft_response.status_code == 201
 
     generation_response = client.post(f"/api/drafts/{draft_response.json()['id']}/generate")
-    assert generation_response.status_code == 201
-    generation = generation_response.json()
-    assert generation["status"] == "failed"
-    assert generation["currentStage"] == "injecting-rules"
-    assert generation["modelProviderId"] is None
-    assert generation["modelProtocol"] is None
-    assert any(item["ruleId"] == "PROVIDER-001" and item["level"] == "blocking" for item in generation["validation"])
+    assert generation_response.status_code == 409
+    assert "not connected" in generation_response.json()["detail"]
 
 
 def test_generation_records_provider_metadata_when_configured(tmp_path: Path, monkeypatch) -> None:
     client = make_client(tmp_path)
     monkeypatch.setenv("SKILLFORGE_TEST_API_KEY", "secret-token")
     provider = client.post("/api/model-providers", json=build_provider_payload("claude")).json()
+    client.app.state.service.storage.save_provider_test_result(
+        provider["id"],
+        ProviderTestResult(
+            status="passed",
+            protocol="claude",
+            model=provider["defaultModel"],
+            latencyMs=1,
+            testedAt="2026-06-10T00:00:00Z",
+            message="ready",
+        ),
+        1,
+    )
     draft = client.post("/api/drafts", json=build_draft_payload()).json()
 
     generation_response = client.post(f"/api/drafts/{draft['id']}/generate")
     assert generation_response.status_code == 201
     generation = generation_response.json()
-    assert generation["status"] == "success"
+    assert generation["status"] == "succeeded"
     assert generation["modelProviderId"] == provider["id"]
     assert generation["modelProtocol"] == "claude"
-    assert generation["providerConnectionRisk"] == "untested"
+    assert generation["providerConnectionRisk"] is None
 
 
 def test_runtime_builds_protocol_specific_minimal_connection_requests(monkeypatch) -> None:

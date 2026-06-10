@@ -12,6 +12,9 @@ from app.utils import ensure_safe_relative_path, format_size
 
 def render_skill_package(ir: SkillIR, package_root: Path) -> Path:
     if package_root.exists():
+        # Safety: refuse to remove root-like paths or suspiciously short paths
+        if len(package_root.parts) < 3:
+            raise ValueError(f"Refusing to remove suspicious path: {package_root}")
         shutil.rmtree(package_root)
     skill_dir = package_root / ir.skill.name
     (skill_dir / "references").mkdir(parents=True, exist_ok=True)
@@ -63,11 +66,21 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         "",
         ir.skill.description,
         "",
+    ]
+
+    if ir.quality.hardRestrictions:
+        lines.extend(["## Mandatory Rules", ""])
+        lines.extend(f"- {rule}" for rule in ir.quality.hardRestrictions)
+        lines.append("")
+
+    lines.extend(
+        [
         "## Workflow",
         "",
         f"**Objective:** {ir.workflow.objective}",
         "",
-    ]
+        ]
+    )
     for index, step in enumerate(ir.workflow.steps, start=1):
         lines.extend(
             [
@@ -98,6 +111,11 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         lines.append("Detailed domain knowledge is stored in `references/domain-knowledge.md`.")
         lines.append("")
 
+    if ir.agentKnowledge.relatedSkills:
+        lines.extend(["## Related Skills", ""])
+        lines.extend(f"- `{skill}`" for skill in ir.agentKnowledge.relatedSkills)
+        lines.append("")
+
     if ir.agentKnowledge.pitfalls:
         lines.extend(["## Pitfalls", ""])
         for pitfall in ir.agentKnowledge.pitfalls:
@@ -111,7 +129,7 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         lines.append("")
 
     lines.extend(["## Verification Checklist", ""])
-    checklist = ir.quality.validationChecklist or ir.workflow.verification
+    checklist = ir.quality.validationChecklist if ir.quality.validationChecklist is not None else ir.workflow.verification
     for item in checklist:
         lines.append(f"- {item}")
     lines.append("")
@@ -125,9 +143,25 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
 def _write_reference(path: Path, ir: SkillIR) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Domain Knowledge", ""]
+    if ir.quality.hardRestrictions:
+        lines.append("## Mandatory Rules")
+        lines.extend(f"- {item}" for item in ir.quality.hardRestrictions)
+        lines.append("")
     if ir.agentKnowledge.unknownKnowledge:
-        lines.append("## Rules and Experience")
+        lines.append("## Professional Information")
         lines.extend(f"- {item}" for item in ir.agentKnowledge.unknownKnowledge)
+        lines.append("")
+    if ir.agentKnowledge.relatedSkills:
+        lines.append("## Dependent or Collaborative Skills")
+        lines.extend(f"- {item}" for item in ir.agentKnowledge.relatedSkills)
+        lines.append("")
+    if ir.agentKnowledge.supplementalContext:
+        lines.append("## Supplemental Context")
+        lines.append(
+            "This optional context has lower priority than every mandatory rule above."
+        )
+        lines.append("")
+        lines.append(ir.agentKnowledge.supplementalContext)
         lines.append("")
     if ir.agentKnowledge.examples:
         lines.append("## Positive Examples")

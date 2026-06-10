@@ -1,278 +1,76 @@
 # NovaFDE
 
-**AI Skill 可视化构建工具 — 从表单向导到一键打包，全流程可视化**
+NovaFDE 是一个纯本地运行的专业 Agent Skill 生成平台。用户通过四步 Web 表单提供业务事实、流程、规则、易错点和补充信息，后端使用 PydanticAI 生成结构化 `SkillIR`，再由确定性 renderer 输出 `SKILL.md` 与三端安装说明。
 
-*Build, validate, and package AI Agent Skills through an intuitive visual wizard.*
+## 核心能力
 
-[![GitHub Stars](https://img.shields.io/github/stars/vc999999999/novafde?style=for-the-badge&logo=github&logoColor=white)](https://github.com/vc999999999/novafde)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](https://opensource.org/license/mit/)
-[![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![Tailwind](https://img.shields.io/badge/Tailwind_CSS_4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-000000?style=for-the-badge&logo=shadcnui&logoColor=white)](https://ui.shadcn.com/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Quick Start](https://img.shields.io/badge/Quick_Start-Ready_To_Go-yellow?style=for-the-badge&logo=rocket)](#-quick-start--快速开始)
+- Claude Code、Codex、Hermes / OpenClaw 三端适配。
+- description 按触发条件生成，而不是功能摘要。
+- 使用文件系统进行渐进式上下文组织。
+- 只补充 Agent 未知的业务或领域信息。
+- 以建议和验证为主，避免无必要的硬性限制。
+- 支持多步骤工作流、分支、验证和失败恢复。
+- Validation、Activation、Implementation 三类质量评测。
+- 初始候选后最多三轮定向修复，始终选择历史最高分安全候选。
+- 缺少不可推断的业务事实时暂停原任务并请求用户补充。
+- 未达到严格门槛但达到最低可用线时返回明确标识的低分包。
+- 生成记录、候选、评分、Trace 和易错点库只保存在本地 SQLite。
 
-<p align="center">
-  <img src="skill-forge/screenshots/step1_fix.png" width="45%" />
-  <img src="skill-forge/screenshots/step3_fix.png" width="45%" />
-</p>
-<p align="center">
-  <img src="skill-forge/screenshots/step5_fix.png" width="45%" />
-  <img src="skill-forge/screenshots/step7_fix.png" width="45%" />
-</p>
-
----
-
-## 中文
-
-### 这是什么？
-
-NovaFDE 是一个 **AI Skill 可视化构建工具**，帮助开发者通过交互式表单向导快速创建、校验和打包符合 [Anthropic Skills](https://github.com/anthropics/skills) 规范的 `SKILL.md` 文件。
-
-不再手写 YAML、不再拼凑提示词——用可视化的方式，7 步完成一个完整的 AI Skill。
-
-### 核心功能
-
-| 功能 | 说明 |
-|------|------|
-| **7 步可视化向导** | 基本信息 → 触发条件 → 工作流 → 上下文 → 知识库 → 输出控制 → 补充对话 |
-| **实时完整度评分** | 侧边栏显示每个步骤和总体完成百分比 |
-| **一键生成** | 调用后端 AI 自动将表单数据转化为规范的 SKILL.md |
-| **校验报告** | 自动生成质量校验，标记阻塞项和警告 |
-| **历史记录** | 查看、重新生成、下载过往 Skill 包 |
-| **多平台支持** | Claude Code / Codex / Hermes-OpenClaw |
-| **双模式运行** | 本地开发模式 / 服务器部署模式 |
-| **模型 Provider 管理** | 支持 Claude 和 OpenAI 兼容协议，可视化配置 |
-
-### 技术栈
+## 本地架构
 
 | 层 | 技术 |
-|----|------|
-| 前端框架 | React 19 + TypeScript 6 |
-| 构建工具 | Vite 8 |
-| 样式方案 | Tailwind CSS 4 + shadcn/ui |
-| 图标库 | Lucide React |
-| 后端框架 | FastAPI + Pydantic |
-| 数据存储 | SQLite |
+|---|---|
+| 前端 | React 19、TypeScript、Vite、Tailwind CSS |
+| 后端 | FastAPI、PydanticAI、Pydantic |
+| 数据库 | 本地 SQLite |
+| 产物 | 本地文件系统与 zip |
+| 密钥 | 系统钥匙串优先，本地加密密钥库兜底 |
 
-### 项目结构
+NovaFDE 没有服务器模式、远程数据库、远程任务队列或中央遥测。除用户自行配置的模型 Provider 外，程序不会上传草稿、评分、日志或产物。
 
-```
-novafde/
-├── backend/                  # FastAPI 后端
-│   ├── app/
-│   │   ├── main.py           # API 路由
-│   │   ├── models.py         # 数据模型
-│   │   ├── service.py        # 业务逻辑
-│   │   └── settings.py       # 配置
-│   └── requirements.txt
-├── skill-forge/              # React 前端
-│   ├── src/
-│   │   ├── components/       # UI 组件
-│   │   │   ├── ui/           # shadcn/ui 基础组件
-│   │   │   └── steps/        # 7 步向导组件
-│   │   ├── pages/            # 页面
-│   │   ├── api.ts            # API 客户端
-│   │   ├── types/            # TypeScript 类型
-│   │   └── index.css         # Tailwind 主题
-│   └── package.json
-├── scripts/                  # 运维脚本
-│   ├── install.sh            # 一键安装
-│   ├── run.sh                # 启动服务
-│   ├── doctor.sh             # 环境检查
-│   └── setup-llm.sh          # 配置 LLM
-├── config/                   # 运行时配置
-└── README.md
-```
+## 安装
 
-### 快速开始
-
-#### 环境要求
-
-- Python 3.10+
-- Node.js 18+（推荐 20+）
-- npm 9+
-
-#### 一键安装
+要求 Python 3.10+、Node.js 18+ 和 npm 9+。
 
 ```bash
-git clone https://github.com/vc999999999/novafde.git
-cd novafde
 sh scripts/install.sh
 ```
 
-#### 启动
-
-```bash
-sh scripts/run.sh
-```
-
-- 前端: http://localhost:5173
-- 后端: http://localhost:8000
-- API 文档: http://localhost:8000/docs
-
-#### 配置 LLM
+配置 Provider 的协议、URL 和模型：
 
 ```bash
 sh scripts/setup-llm.sh
 ```
 
-或直接编辑 `.env`：
-
-```env
-# Claude
-ANTHROPIC_API_KEY=sk-ant-...
-
-# OpenAI 兼容（Ollama / vLLM / 其他）
-OPENAI_API_KEY=sk-...
-```
-
-### AI Agent 一键安装
-
-如果你是 AI Agent（Claude、GPT、Cursor 等），复制以下指令即可自动完成项目初始化：
-
-```
-请帮我安装并启动 NovaFDE 项目：
-
-1. 克隆仓库：git clone https://github.com/vc999999999/novafde.git && cd novafde
-2. 环境检查：sh scripts/doctor.sh
-3. 安装依赖：sh scripts/install.sh
-4. 配置 LLM：sh scripts/setup-llm.sh（选择 Claude 或 OpenAI 兼容）
-5. 启动服务：sh scripts/run.sh
-
-启动后访问 http://localhost:5173 使用前端界面。
-```
-
-### 常用命令
-
-| 命令 | 说明 |
-|------|------|
-| `sh scripts/install.sh` | 安装所有依赖 |
-| `sh scripts/run.sh` | 启动前后端 |
-| `sh scripts/doctor.sh` | 环境检查 |
-| `sh scripts/setup-llm.sh` | 配置 LLM Provider |
-| `sh scripts/clean-artifacts.sh --yes` | 清理生成产物 |
-
-### 支持的 LLM Provider
-
-| 协议 | Provider | 默认模型 |
-|------|----------|----------|
-| Claude | Anthropic | claude-sonnet-4-20250514 |
-| OpenAI Compatible | OpenAI / Ollama / vLLM | llama3 |
-
----
-
-## English
-
-### What is NovaFDE?
-
-NovaFDE is a **visual AI Skill builder** that helps developers create, validate, and package `SKILL.md` files compliant with the [Anthropic Skills](https://github.com/anthropics/skills) specification through an interactive form wizard.
-
-No more hand-writing YAML or stitching prompts together — build a complete AI Skill visually in 7 steps.
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **7-Step Visual Wizard** | Basic Info → Trigger → Workflow → Context → Knowledge → Output Control → Supplement |
-| **Live Completion Score** | Sidebar shows per-step and overall completion percentage |
-| **One-Click Generation** | Backend AI transforms form data into a spec-compliant SKILL.md |
-| **Validation Report** | Auto-generated quality checks with blocking and warning flags |
-| **History** | View, regenerate, and download past Skill packages |
-| **Multi-Platform** | Claude Code / Codex / Hermes-OpenClaw |
-| **Dual Mode** | Local development / Server deployment |
-| **Provider Management** | Visual config for Claude and OpenAI-compatible protocols |
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Frontend | React 19 + TypeScript 6 |
-| Build | Vite 8 |
-| Styling | Tailwind CSS 4 + shadcn/ui |
-| Icons | Lucide React |
-| Backend | FastAPI + Pydantic |
-| Storage | SQLite |
-
-### Quick Start
-
-#### Prerequisites
-
-- Python 3.10+
-- Node.js 18+ (20+ recommended)
-- npm 9+
-
-#### Install
-
-```bash
-git clone https://github.com/vc999999999/novafde.git
-cd novafde
-sh scripts/install.sh
-```
-
-#### Run
+随后启动程序，在 Web 设置页输入 API Key 并执行连接测试。Key 不写入 SQLite 或 `.env`。
 
 ```bash
 sh scripts/run.sh
 ```
 
-- Frontend: http://localhost:5173
-- Backend: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+- 前端：<http://127.0.0.1:5173>
+- 后端：<http://127.0.0.1:8000>
+- API 文档：<http://127.0.0.1:8000/docs>
 
-#### Configure LLM
+## 验证
 
 ```bash
-sh scripts/setup-llm.sh
+.venv/bin/python -m pytest backend/tests -q
+cd skill-forge
+npm run build
+npm run lint
+npm test
 ```
 
-Or edit `.env` directly:
+真实模型质量评测应独立运行，不进入普通单元测试。生产生成流程不会在模型失败时生成静态替代作品。
 
-```env
-# Claude
-ANTHROPIC_API_KEY=sk-ant-...
+## 目录
 
-# OpenAI Compatible (Ollama / vLLM / etc.)
-OPENAI_API_KEY=sk-...
+```text
+backend/          FastAPI、PydanticAI Agent、质量闭环和 SQLite
+skill-forge/      React Web 应用
+scripts/          本地安装、启动、诊断和 Provider 配置
+docs/             产品与技术 PRD
+config/           不含明文密钥的本地 Provider 配置
+backend/.data/    SQLite、加密密钥库和生成产物
 ```
-
-### AI Agent One-Click Setup
-
-If you are an AI Agent (Claude, GPT, Cursor, etc.), copy the prompt below to auto-install:
-
-```
-Please install and start the NovaFDE project:
-
-1. Clone: git clone https://github.com/vc999999999/novafde.git && cd novafde
-2. Check env: sh scripts/doctor.sh
-3. Install deps: sh scripts/install.sh
-4. Configure LLM: sh scripts/setup-llm.sh (choose Claude or OpenAI compatible)
-5. Start: sh scripts/run.sh
-
-Access the UI at http://localhost:5173 after startup.
-```
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `sh scripts/install.sh` | Install all dependencies |
-| `sh scripts/run.sh` | Start frontend + backend |
-| `sh scripts/doctor.sh` | Environment health check |
-| `sh scripts/setup-llm.sh` | Configure LLM Provider |
-| `sh scripts/clean-artifacts.sh --yes` | Clean generated artifacts |
-
-### Supported LLM Providers
-
-| Protocol | Provider | Default Model |
-|----------|----------|---------------|
-| Claude | Anthropic | claude-sonnet-4-20250514 |
-| OpenAI Compatible | OpenAI / Ollama / vLLM | llama3 |
-
----
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
-*Built with passion by [vc999999999](https://github.com/vc999999999)*

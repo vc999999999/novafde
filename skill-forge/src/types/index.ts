@@ -1,59 +1,53 @@
 export type TargetPlatform = 'claude-code' | 'codex' | 'hermes-openclaw';
 
-export type SkillType = 'automation' | 'workflow' | 'template' | 'constraint';
-
-export type OutputLanguage = 'zh-CN' | 'en';
-
-export type FreedomLevel = 'high' | 'medium' | 'low';
-
-export type ValidationStrictness = 'loose' | 'normal' | 'strict';
-
 export type GenerationStage =
+  | 'queued'
   | 'normalizing'
   | 'injecting-rules'
   | 'splitting-workflow'
   | 'generating-ir'
+  | 'validating-schema'
   | 'rendering-files'
+  | 'running-validation-checks'
+  | 'evaluating-activation'
+  | 'evaluating-implementation'
+  | 'aggregating-scores'
+  | 'repairing'
+  | 'awaiting-user-input'
+  | 'selecting-best-candidate'
   | 'quality-gate'
   | 'packaging';
 
-export type GenerationStatus = 'idle' | 'generating' | 'validating' | 'success' | 'failed';
+export type GenerationStatus =
+  | 'queued'
+  | 'normalizing'
+  | 'generating_initial_ir'
+  | 'validating_schema'
+  | 'rendering_candidate'
+  | 'running_validation_checks'
+  | 'evaluating_activation'
+  | 'evaluating_implementation'
+  | 'aggregating_scores'
+  | 'repairing_round_1'
+  | 'repairing_round_2'
+  | 'repairing_round_3'
+  | 'awaiting_user_input'
+  | 'selecting_best_candidate'
+  | 'packaging_high_quality'
+  | 'packaging_low_score'
+  | 'succeeded'
+  | 'degraded'
+  | 'interrupted'
+  | 'failed';
 
 export type ValidationLevel = 'pass' | 'warning' | 'blocking';
 
-export interface TriggerInfo {
-  intent: string;
-  taskType: string;
-  positiveExamples: string[];
-  negativeExamples: string[];
-  commonPhrases: string[];
-  relatedFileTypes: string[];
-  relatedTools: string[];
-  relatedObjects: string[];
-}
-
-export interface WorkflowStep {
-  id: string;
-  purpose: string;
-  action: string;
-  input: string;
-  output: string;
-  validation: string;
-  failureHandling: string;
-}
-
-export interface WorkflowInfo {
-  objective: string;
-  steps: WorkflowStep[];
-  preconditions: string;
-}
-
-export interface ContextInfo {
-  filesToRead: string[];
-  needsReferences: boolean;
-  needsScripts: boolean;
-  needsAssets: boolean;
-  loadingRule: string;
+export interface PurposeInfo {
+  usage: string;
+  desiredOutcome: string;
+  process: string[];
+  completionCriteria: string;
+  specialCases: string;
 }
 
 export interface KnowledgePitfall {
@@ -64,25 +58,10 @@ export interface KnowledgePitfall {
 }
 
 export interface KnowledgeInfo {
-  industryRules: string[];
-  internalProcesses: string[];
-  personalExperience: string[];
+  professionalInformation: string[];
+  mandatoryRules: string[];
   pitfalls: KnowledgePitfall[];
-}
-
-export interface OutputControl {
-  freedom: FreedomLevel;
-  allowHardLimits: boolean;
-  validationStrictness: ValidationStrictness;
-  generateInstallGuide: boolean;
-  allowDownloadWithWarnings: boolean;
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'agent';
-  content: string;
-  timestamp: number;
+  relatedSkills: string[];
 }
 
 export interface SkillDraft {
@@ -90,16 +69,11 @@ export interface SkillDraft {
   status?: 'draft';
   name: string;
   displayName: string;
-  language: OutputLanguage;
-  skillType: SkillType;
   targetPlatforms: TargetPlatform[];
-  trigger: TriggerInfo;
-  workflow: WorkflowInfo;
-  context: ContextInfo;
+  purpose: PurposeInfo;
   knowledge: KnowledgeInfo;
-  outputControl: OutputControl;
   supplement: {
-    messages: ChatMessage[];
+    content: string;
   };
   createdAt: number;
   updatedAt: number;
@@ -107,6 +81,7 @@ export interface SkillDraft {
 
 export interface GenerationResult {
   id: string;
+  runId: string;
   draftId: string;
   status: GenerationStatus;
   currentStage: GenerationStage | null;
@@ -120,6 +95,22 @@ export interface GenerationResult {
   startedAt: number;
   completedAt: number | null;
   errorMessage: string | null;
+  modelProviderId?: string | null;
+  modelProtocol?: ProviderProtocol | null;
+  providerConnectionRisk?: string | null;
+  currentRound: number;
+  maxRepairRounds: number;
+  bestAttemptId: string | null;
+  finalAttemptId: string | null;
+  finalRound: number | null;
+  awaitingUserInputIssueIds: string[];
+  promptedIssueIds: string[];
+  userQuestions: UserQuestion[];
+  qualityReport: QualityEvaluationReport | null;
+  qualityPolicyVersion: string;
+  promptBundleVersion: string;
+  failureCode: string | null;
+  supplementScoreDelta: number | null;
 }
 
 export interface FileNode {
@@ -139,6 +130,7 @@ export interface ValidationItem {
   suggestion: string;
   blocksDownload: boolean;
   field?: string;
+  inputLayer?: 'required' | 'derived' | 'advanced' | null;
 }
 
 export interface DownloadInfo {
@@ -150,10 +142,19 @@ export interface DownloadInfo {
   size: string;
 }
 
-export type HistoryItemStatus = 'draft' | 'generating' | 'validating' | 'downloadable' | 'failed';
+export type HistoryItemStatus =
+  | 'draft'
+  | 'generating'
+  | 'validating'
+  | 'awaiting-user-input'
+  | 'downloadable'
+  | 'degraded'
+  | 'interrupted'
+  | 'failed';
 
 export interface HistoryItem {
   id: string;
+  generationId: string | null;
   displayName: string;
   name: string;
   status: HistoryItemStatus;
@@ -166,7 +167,12 @@ export interface HistoryItem {
 
 export type ProviderProtocol = 'claude' | 'openai-compatible';
 
-export type ProviderRole = 'generation' | 'repair' | 'validation-explanation';
+export type ProviderRole =
+  | 'generation'
+  | 'repair'
+  | 'activation-evaluation'
+  | 'implementation-evaluation'
+  | 'validation-explanation';
 
 export type ProviderTestStatus = 'passed' | 'failed';
 
@@ -205,6 +211,8 @@ export interface ModelProviderConfig {
   roles: ProviderRole[];
   timeoutMs: number;
   retries: number;
+  inputPricePerMillionTokens: number;
+  outputPricePerMillionTokens: number;
   streaming: boolean;
   customHeaders: Record<string, string>;
   enabled: boolean;
@@ -250,10 +258,155 @@ export interface QualityRule {
   severity: 'blocking' | 'warning';
 }
 
+export interface ErrorPattern {
+  id: string;
+  patternId: string;
+  category: string;
+  criterion: string;
+  severity: QualitySeverity;
+  triggerConditions: string[];
+  suggestedFix: string;
+  occurrenceCount: number;
+  resolutionRate: number;
+  status: string;
+  version: string;
+  updatedAt: number;
+}
+
+export interface DiagnosticMetrics {
+  runCount: number;
+  firstRoundStrictPassRate: number;
+  finalStrictPassRate: number;
+  degradedDeliveryRate: number;
+  technicalFailureRate: number;
+  averageRepairRounds: number;
+  averageScoreImprovement: number;
+  scoreRegressionRate: number;
+  supplementPromptRate: number;
+  supplementSkipRate: number;
+  criterionAverageScores: Record<string, number>;
+  issueFrequency: ErrorPattern[];
+  models: Record<string, {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUsd: number;
+    p95LatencyMs: number;
+    strictPassRate: number;
+  }>;
+  alerts: string[];
+}
+
+// --- App settings ---
+
+export interface AppSettings {
+  defaultGenerateProvider: string;
+  defaultRepairProvider: string;
+  defaultValidateProvider: string;
+  blockOnMissingConfig: boolean;
+}
+
+export type QualitySeverity =
+  | 'security_blocker'
+  | 'structure_blocker'
+  | 'quality_error'
+  | 'warning'
+  | 'info';
+
+export type InputControl = 'short-text' | 'long-text' | 'single-select' | 'multi-select';
+
+export interface UserQuestion {
+  issueId: string;
+  question: string;
+  inputControl: InputControl;
+  options: string[];
+  existingAnswer: string | string[] | null;
+}
+
+export interface QualityIssue {
+  issueId: string;
+  source: 'validation' | 'activation' | 'implementation';
+  criterion: string;
+  severity: QualitySeverity;
+  score: number | null;
+  reason: string;
+  evidence: string[];
+  suggestion: string;
+  affectedPaths: string[];
+  autoFixable: boolean;
+  requiresUserInput: boolean;
+  userQuestion: string | null;
+  inputControl: InputControl | null;
+  options: string[];
+}
+
+export interface CriterionScore {
+  criterion: string;
+  score: number;
+  reason: string;
+  evidence: string[];
+  suggestion: string;
+  requiresUserInput: boolean;
+  userQuestion: string | null;
+  inputControl: InputControl | null;
+  options: string[];
+}
+
+export interface JudgeEvaluation {
+  dimension: 'activation' | 'implementation';
+  criterionScores: CriterionScore[];
+  dimensionScore: number;
+  summary: string;
+  issues: QualityIssue[];
+  confidence: number;
+  requiresRepair: boolean;
+  requiresUserInput: boolean;
+  userQuestions: UserQuestion[];
+}
+
+export interface QualityEvaluationReport {
+  attemptId: string;
+  validationScore: number;
+  activationScore: number | null;
+  implementationScore: number | null;
+  overallScore: number | null;
+  passedStrictGate: boolean;
+  passedDegradedGate: boolean;
+  blockingIssueCount: number;
+  issues: QualityIssue[];
+  activation: JudgeEvaluation | null;
+  implementation: JudgeEvaluation | null;
+  rubricVersion: string;
+  evaluatedAt: number;
+}
+
+export type ModelConnectionState =
+  | 'unconfigured'
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'error';
+
+export interface ModelConnectionProvider {
+  id: string;
+  name: string;
+  model: string;
+  protocol: ProviderProtocol;
+}
+
+export interface ModelConnectionStatus {
+  status: ModelConnectionState;
+  generationProvider: ModelConnectionProvider | null;
+  judgeProvider: ModelConnectionProvider | null;
+  checkedAt: string | null;
+  message: string;
+}
+
+export interface SupplementAnswer {
+  issueId: string;
+  answer: string | string[];
+}
+
 // --- Page type ---
 
 export type Page = 'create' | 'history' | 'rules' | 'settings' | 'local';
-
-// --- App mode ---
-
-export type AppMode = 'local' | 'server';
