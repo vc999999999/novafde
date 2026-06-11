@@ -24,6 +24,15 @@ from app.models import AgentCallMetadata, ModelProviderConfig, ProviderRole, Pro
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 ModelFactory = Callable[[ModelProviderConfig, ProviderRole], Model]
+# Resolves an apiKeyRef name to its secret. Keys are no longer written to
+# os.environ (security), so the runtime must consult the injected resolver,
+# which checks the environment and then the encrypted secret store.
+KeyResolver = Callable[[str], "str | None"]
+
+
+def _env_key_resolver(name: str) -> str | None:
+    return os.environ.get(name)
+
 
 # Structured SkillIR outputs regularly exceed the 4096-token default that
 # pydantic-ai applies to Anthropic-protocol models; a truncated tool call
@@ -32,8 +41,13 @@ MAX_OUTPUT_TOKENS = int(os.environ.get("SKILLFORGE_MAX_OUTPUT_TOKENS", "16384"))
 
 
 class PydanticAgentRuntime:
-    def __init__(self, model_factory: ModelFactory | None = None) -> None:
+    def __init__(
+        self,
+        model_factory: ModelFactory | None = None,
+        key_resolver: KeyResolver | None = None,
+    ) -> None:
         self._model_factory = model_factory
+        self._key_resolver = key_resolver or _env_key_resolver
 
     def run_structured(
         self,
@@ -87,10 +101,11 @@ class PydanticAgentRuntime:
         )
 
     def _build_model(self, provider: ModelProviderConfig) -> Model:
-        api_key = os.environ.get(provider.apiKeyRef.name)
+        api_key = self._key_resolver(provider.apiKeyRef.name)
         if not api_key:
             raise RuntimeError(
-                f"Missing API key: environment variable {provider.apiKeyRef.name} is not set."
+                f"Missing API key for {provider.apiKeyRef.name}: save it in the "
+                "provider settings or set the matching environment variable."
             )
         timeout = provider.timeoutMs / 1000
         if provider.protocol == "anthropic":
@@ -120,19 +135,27 @@ class PydanticAgentRuntime:
 
 
 class ModelProviderRuntime:
-    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        transport: httpx.BaseTransport | None = None,
+        key_resolver: KeyResolver | None = None,
+    ) -> None:
         self.transport = transport
+        self._key_resolver = key_resolver or _env_key_resolver
 
     def test_connection(self, provider: ModelProviderConfig) -> ProviderTestResult:
         started = time.perf_counter()
-        api_key = os.environ.get(provider.apiKeyRef.name)
+        api_key = self._key_resolver(provider.apiKeyRef.name)
         if not api_key:
             return self._result(
                 provider=provider,
                 started=started,
                 status="failed",
                 failure_category="auth-missing",
-                message=f"Missing environment variable {provider.apiKeyRef.name}.",
+                message=(
+                    f"No API key found for {provider.apiKeyRef.name}. Save it in the "
+                    "provider settings or set the matching environment variable."
+                ),
             )
 
         try:

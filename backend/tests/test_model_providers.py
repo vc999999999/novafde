@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import ModelProviderConfig, ProviderTestResult
 from app.provider_runtime import ModelProviderRuntime
+from app.secret_store import SecretStore
 from app.settings import Settings
 from tests.test_api_pipeline import build_draft_payload
 from tests.agent_support import build_test_agents
@@ -154,6 +155,51 @@ def test_generation_records_provider_metadata_when_configured(tmp_path: Path, mo
     assert generation["modelProviderId"] == provider["id"]
     assert generation["modelProtocol"] == "anthropic"
     assert generation["providerConnectionRisk"] is None
+
+
+def test_runtime_resolves_key_from_secret_store_when_not_in_env(tmp_path: Path, monkeypatch) -> None:
+    # Regression: UI-saved keys live in the SecretStore, never os.environ. The
+    # runtime must resolve them through the injected resolver, not just env.
+    monkeypatch.delenv("SKILLFORGE_TEST_API_KEY", raising=False)
+    store = SecretStore(
+        encrypted_path=tmp_path / "secrets.enc",
+        key_path=tmp_path / "secrets.key",
+        prefer_keyring=False,
+    )
+    store.set("SKILLFORGE_TEST_API_KEY", "stored-in-vault")
+
+    seen_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    runtime = ModelProviderRuntime(transport=httpx.MockTransport(handler), key_resolver=store.get)
+    provider = ModelProviderConfig.model_validate({**build_provider_payload("anthropic"), "id": "provider_vault"})
+
+    result = runtime.test_connection(provider)
+
+    assert result.status == "passed"
+    assert seen_requests[0].headers["x-api-key"] == "stored-in-vault"
+
+
+def test_service_resolves_ui_saved_key_for_connection_test(tmp_path: Path, monkeypatch) -> None:
+    # End-to-end wiring: a key submitted through the API must be readable by the
+    # service key resolver even though it is never written to the environment.
+    monkeypatch.delenv("SKILLFORGE_UI_TEST_API_KEY", raising=False)
+    settings = Settings(data_dir=tmp_path / "data", use_system_keyring=False)
+    client = TestClient(create_app(settings))
+
+    payload = {
+        **build_provider_payload("anthropic"),
+        "apiKeyRef": {"type": "env", "name": "SKILLFORGE_UI_TEST_API_KEY"},
+        "apiKey": "secret-token-from-ui",
+    }
+    create_response = client.post("/api/model-providers", json=payload)
+    assert create_response.status_code == 201
+
+    service = client.app.state.service
+    assert service._resolve_api_key("SKILLFORGE_UI_TEST_API_KEY") == "secret-token-from-ui"
 
 
 def test_runtime_builds_protocol_specific_minimal_connection_requests(monkeypatch) -> None:

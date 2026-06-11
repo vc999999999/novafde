@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +35,7 @@ from app.models import (
     ValidationResponse,
 )
 from app.orchestrator import QualityOrchestrator
-from app.provider_runtime import ModelProviderRuntime
+from app.provider_runtime import ModelProviderRuntime, PydanticAgentRuntime
 from app.quality import QualityPolicy
 from app.rules import RULES
 from app.secret_store import SecretStore
@@ -55,15 +56,16 @@ class SkillForgeService:
         self.storage = Storage(settings.database_path)
         self.storage.recover_interrupted_generations()
         self._cleanup_expired_attempts()
-        self.provider_runtime = ModelProviderRuntime()
         self.secret_store = SecretStore(
             encrypted_path=settings.encrypted_secrets_path,
             key_path=settings.secret_key_path,
             prefer_keyring=settings.use_system_keyring,
         )
+        self.provider_runtime = ModelProviderRuntime(key_resolver=self._resolve_api_key)
         self._load_local_provider_config()
-        self._load_provider_secrets()
-        self.agents = agents or PydanticSkillAgents()
+        self.agents = agents or PydanticSkillAgents(
+            PydanticAgentRuntime(key_resolver=self._resolve_api_key)
+        )
         self.orchestrator = QualityOrchestrator(
             settings=settings,
             storage=self.storage,
@@ -656,9 +658,10 @@ class SkillForgeService:
             provider = ModelProviderConfig.model_validate({**item, "id": provider_id})
             self.storage.save_provider(provider, now_ms())
 
-    def _load_provider_secrets(self) -> None:
-        for provider in self.storage.list_providers():
-            self.secret_store.get(provider.apiKeyRef.name)
+    def _resolve_api_key(self, name: str) -> str | None:
+        """Resolve a provider key: environment variable first, then the
+        encrypted secret store where UI-saved keys are persisted."""
+        return os.environ.get(name) or self.secret_store.get(name)
 
     def _cleanup_expired_attempts(self) -> None:
         cutoff = now_ms() - self.settings.attempt_retention_days * 86_400_000
