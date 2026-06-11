@@ -48,6 +48,17 @@ from app.utils import (
 from app.validator import blocking_count, evaluate_validation, warning_count
 
 
+class CandidateRenderError(RuntimeError):
+    """Raised when rendering a candidate package fails.
+
+    Must propagate as an exception: callers of _evaluate_candidate unpack a
+    tuple, so returning a failed GenerationResult from inside it would crash
+    the caller and overwrite the failure code.
+    """
+
+    failure_code = "RENDER_FAILED"
+
+
 class QualityOrchestrator:
     def __init__(
         self,
@@ -316,7 +327,7 @@ class QualityOrchestrator:
                     return self._finalize_best(generation, attempts, reports)
                 return self._fail(
                     generation,
-                    "EVALUATION_MODEL_FAILED",
+                    getattr(exc, "failure_code", "EVALUATION_MODEL_FAILED"),
                     f"候选评测失败：{exc}",
                 )
             generation.validation = validation_items
@@ -394,6 +405,21 @@ class QualityOrchestrator:
                 else current_ir
             )
             rendered_skill_md, rendered_files = _rendered_artifacts(best_attempt or attempt)
+            # Repair starts from the best attempt, so feed it that attempt's
+            # issues; the latest report may criticize content the best IR
+            # does not contain when a repair round regressed.
+            repair_issues = report.issues
+            if best_attempt is not None and best_attempt.id != attempt.id:
+                best_report = next(
+                    (
+                        item
+                        for item in self.storage.list_quality_reports(generation.id)
+                        if item.attemptId == best_attempt.id
+                    ),
+                    None,
+                )
+                if best_report is not None:
+                    repair_issues = best_report.issues
             self._transition(
                 generation,
                 f"repairing_round_{next_round}",
@@ -411,8 +437,8 @@ class QualityOrchestrator:
                         original_ir=original_ir,
                         current_ir=best_ir,
                         best_ir=best_ir,
-                        issues=report.issues,
-                        allowed_paths=_allowed_paths(report.issues),
+                        issues=repair_issues,
+                        allowed_paths=_allowed_paths(repair_issues),
                         locked_paths=_locked_paths(),
                         round_number=next_round,
                         provider=provider,
@@ -430,7 +456,7 @@ class QualityOrchestrator:
             current_ir = repaired.skillIR
             changed_paths = repaired.changedPaths
             pending_agent_calls = [metadata]
-            input_issue_ids = [issue.issueId for issue in report.issues]
+            input_issue_ids = [issue.issueId for issue in repair_issues]
             round_number = next_round
 
     def _evaluate_candidate(
@@ -444,7 +470,7 @@ class QualityOrchestrator:
         changed_paths: list[str],
         pending_agent_calls: list[AgentCallMetadata],
         input_issue_ids: list[str],
-    ) -> tuple[GenerationAttempt, QualityEvaluationReport, list]:
+    ) -> tuple[GenerationAttempt, QualityEvaluationReport, list[ValidationItem]]:
         candidate_started = time.perf_counter()
         attempt_id = make_id("attempt")
         package_root = (
@@ -465,11 +491,7 @@ class QualityOrchestrator:
         try:
             render_skill_package(ir, package_root)
         except Exception as exc:
-            return self._fail(
-                generation,
-                "RENDER_FAILED",
-                f"渲染 Skill 包失败：{exc}",
-            )
+            raise CandidateRenderError(f"渲染 Skill 包失败：{exc}") from exc
         write_install_guides(package_root, ir)
         file_hashes = hash_directory(package_root)
         file_paths = sorted(file_hashes)

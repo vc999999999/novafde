@@ -249,6 +249,76 @@ def setup_run(
     return orchestrator, storage, run_id
 
 
+def test_render_failure_fails_with_render_failed_code(tmp_path: Path) -> None:
+    class UnsafePathAgents(ScriptedAgents):
+        def generate(self, brief, provider_config):
+            ir, meta = super().generate(brief, provider_config)
+            ir.contextEngineering.references = ["../escape.md"]
+            return ir, meta
+
+    agents = UnsafePathAgents(activation_scores=[4], implementation_scores=[4])
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "failed"
+    assert generation.failureCode == "RENDER_FAILED"
+
+
+def test_repair_receives_best_attempt_issues_after_regression(tmp_path: Path) -> None:
+    class RecordingAgents(ScriptedAgents):
+        def __init__(self) -> None:
+            super().__init__(
+                activation_scores=[4, 4, 4, 4],
+                implementation_scores=[3, 2, 2, 2],
+            )
+            self.repair_issue_reasons: list[list[str]] = []
+
+        def repair(self, **kwargs):
+            self.repair_issue_reasons.append(
+                [issue.reason for issue in kwargs["issues"]]
+            )
+            self.repair_calls += 1
+            result = RepairAgentResult(
+                skillIR=kwargs["current_ir"].model_copy(deep=True),
+                changedPaths=["workflow.objective"],
+                resolvedIssueIds=[issue.issueId for issue in kwargs["issues"]],
+            )
+            result.skillIR.workflow.objective += f" Repair round {self.repair_calls}."
+            return result, metadata("repair")
+
+        def evaluate_implementation(
+            self, brief, ir, rendered_skill_md, file_paths, provider_config
+        ):
+            evaluation, meta = super().evaluate_implementation(
+                brief, ir, rendered_skill_md, file_paths, provider_config
+            )
+            for issue in evaluation.issues:
+                issue.reason = f"round-call-{self.implementation_calls}"
+            return evaluation, meta
+
+    agents = RecordingAgents()
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "degraded"
+    assert len(agents.repair_issue_reasons) >= 2
+    # Round 1 regressed below round 0, so the second repair starts from the
+    # best attempt (round 0) and must receive that attempt's issues, not the
+    # ones criticizing the regressed latest attempt.
+    judge_reasons = [
+        reason
+        for reason in agents.repair_issue_reasons[1]
+        if reason.startswith("round-call-")
+    ]
+    assert judge_reasons == ["round-call-1"]
+
+
 def test_orchestrator_packages_first_strict_candidate(tmp_path: Path) -> None:
     agents = ScriptedAgents(activation_scores=[4], implementation_scores=[4])
     orchestrator, storage, run_id = setup_run(tmp_path, agents)

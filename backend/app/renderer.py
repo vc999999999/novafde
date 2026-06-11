@@ -67,18 +67,22 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
     ]
     if ir.skill.overview.strip():
         lines.extend([ir.skill.overview.strip(), ""])
-    lines.extend(
-        [
-            "## When to Use",
-            "",
-            ir.skill.description,
-            "",
-        ]
-    )
 
     if ir.quality.hardRestrictions:
         lines.extend(["## Mandatory Rules", ""])
         lines.extend(f"- {rule}" for rule in ir.quality.hardRestrictions)
+        lines.append("")
+
+    if ir.quality.softGuidance:
+        lines.extend(
+            [
+                "## Soft Guidance",
+                "",
+                "Recommendations only; every mandatory rule takes precedence.",
+                "",
+            ]
+        )
+        lines.extend(f"- {item}" for item in ir.quality.softGuidance)
         lines.append("")
 
     lines.extend(
@@ -102,6 +106,16 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
                 "",
             ]
         )
+
+    if ir.workflow.decisionPoints:
+        lines.extend(["## Decision Points", ""])
+        lines.extend(f"- {item}" for item in ir.workflow.decisionPoints)
+        lines.append("")
+
+    if ir.workflow.failureHandling:
+        lines.extend(["## Failure Handling", ""])
+        lines.extend(f"- {item}" for item in ir.workflow.failureHandling)
+        lines.append("")
 
     lines.extend(["## Context Loading", ""])
     for assumption in ir.contextEngineering.filesystemAssumptions:
@@ -147,6 +161,16 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
                     f"  - Bad: {pitfall.badExample}",
                 ]
             )
+        lines.append("")
+
+    if ir.agentKnowledge.examples:
+        lines.extend(["## Positive Examples", ""])
+        lines.extend(f"- {item}" for item in ir.agentKnowledge.examples)
+        lines.append("")
+
+    if ir.agentKnowledge.counterExamples:
+        lines.extend(["## Counter Examples", ""])
+        lines.extend(f"- {item}" for item in ir.agentKnowledge.counterExamples)
         lines.append("")
 
     checklist = ir.quality.validationChecklist or ir.workflow.verification

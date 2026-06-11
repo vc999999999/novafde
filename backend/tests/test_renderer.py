@@ -35,3 +35,56 @@ def test_authored_reference_files_render_model_content(tmp_path) -> None:
     assert fallback.startswith("# Domain Knowledge")
     skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     assert "Load `references/research-method.md` when: 需要执行证据分级时" in skill_md
+
+
+def test_skill_md_renders_workflow_and_quality_lists(tmp_path) -> None:
+    ir = valid_ir()
+    ir.workflow.decisionPoints = ["证据不足时先扩大检索范围，再决定是否降级结论"]
+    ir.workflow.failureHandling = ["List evidence gaps"]
+    ir.quality.softGuidance = ["优先引用一手来源"]
+    ir.agentKnowledge.examples = ["每条结论后附 [来源编号]"]
+    ir.agentKnowledge.counterExamples = ["直接给出无出处的结论"]
+
+    skill_dir = render_skill_package(ir, tmp_path / "pkg")
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "## Decision Points" in skill_md
+    assert "- 证据不足时先扩大检索范围，再决定是否降级结论" in skill_md
+    assert "## Failure Handling" in skill_md
+    assert "- List evidence gaps" in skill_md
+    assert "## Soft Guidance" in skill_md
+    assert "Recommendations only; every mandatory rule takes precedence." in skill_md
+    assert "- 优先引用一手来源" in skill_md
+    assert "## Positive Examples" in skill_md
+    assert "- 每条结论后附 [来源编号]" in skill_md
+    assert "## Counter Examples" in skill_md
+    assert "- 直接给出无出处的结论" in skill_md
+
+
+def test_skill_md_keeps_description_in_frontmatter_only(tmp_path) -> None:
+    ir = valid_ir()
+
+    skill_dir = render_skill_package(ir, tmp_path / "pkg")
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    body = skill_md.split("---\n", 2)[2]
+    assert "## When to Use" not in skill_md
+    assert ir.skill.description not in body
+
+
+def test_skill_md_omits_empty_optional_sections(tmp_path) -> None:
+    ir = valid_ir()
+    ir.workflow.decisionPoints = []
+    ir.workflow.failureHandling = []
+    ir.quality.softGuidance = []
+    ir.agentKnowledge.examples = []
+    ir.agentKnowledge.counterExamples = []
+
+    skill_dir = render_skill_package(ir, tmp_path / "pkg")
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "## Decision Points" not in skill_md
+    assert "## Failure Handling" not in skill_md
+    assert "## Soft Guidance" not in skill_md
+    assert "## Positive Examples" not in skill_md
+    assert "## Counter Examples" not in skill_md

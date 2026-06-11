@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Protocol
+from typing import Literal, Protocol
 
 from app.models import (
     AgentCallMetadata,
@@ -147,8 +147,7 @@ class PydanticSkillAgents:
             output_type=JudgeEvaluation,
             prompt_version=ACTIVATION_PROMPT_VERSION,
         )
-        evaluation.dimension = "activation"
-        return evaluation, metadata
+        return _coerce_dimension(evaluation, "activation"), metadata
 
     def evaluate_implementation(
         self,
@@ -172,8 +171,24 @@ class PydanticSkillAgents:
             output_type=JudgeEvaluation,
             prompt_version=IMPLEMENTATION_PROMPT_VERSION,
         )
-        evaluation.dimension = "implementation"
-        return evaluation, metadata
+        return _coerce_dimension(evaluation, "implementation"), metadata
+
+
+def _coerce_dimension(
+    evaluation: JudgeEvaluation,
+    dimension: Literal["activation", "implementation"],
+) -> JudgeEvaluation:
+    """Force the dimension the caller requested and re-run model validation.
+
+    Plain assignment would skip the criteria/dimension consistency check, so a
+    judge that self-declared the wrong dimension with the wrong criteria set
+    would slip through; re-validation turns that into a provider failure.
+    """
+    if evaluation.dimension == dimension:
+        return evaluation
+    payload = evaluation.model_dump(mode="json")
+    payload["dimension"] = dimension
+    return JudgeEvaluation.model_validate(payload)
 
 
 def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
@@ -214,9 +229,9 @@ def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
         restored.agentKnowledge.supplementalContext = brief.supplementalContext
     if brief.specialCases and not restored.workflow.decisionPoints:
         restored.workflow.decisionPoints.append(brief.specialCases)
-    has_reference_content = bool(
-        restored.contextEngineering.references
-        or restored.contextEngineering.referenceFiles
+    authored_paths = {item.path for item in restored.contextEngineering.referenceFiles}
+    has_fallback_reference = any(
+        path not in authored_paths for path in restored.contextEngineering.references
     )
     needs_references = brief.needsReferences or bool(
         brief.professionalInformation
@@ -225,6 +240,19 @@ def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
         or brief.relatedSkills
         or brief.supplementalContext
     )
-    if needs_references and not has_reference_content:
-        restored.contextEngineering.references = ["references/domain-knowledge.md"]
+    # unknownKnowledge and supplementalContext reach the rendered package only
+    # through the fallback digest file; authored referenceFiles carry their own
+    # content and give no guarantee these fields land anywhere.
+    needs_digest = bool(
+        restored.agentKnowledge.unknownKnowledge
+        or restored.agentKnowledge.supplementalContext.strip()
+    ) or (needs_references and not authored_paths)
+    digest_path = "references/domain-knowledge.md"
+    if (
+        needs_digest
+        and not has_fallback_reference
+        and digest_path not in authored_paths
+        and digest_path not in restored.contextEngineering.references
+    ):
+        restored.contextEngineering.references.append(digest_path)
     return restored

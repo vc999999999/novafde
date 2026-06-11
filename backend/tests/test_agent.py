@@ -1,5 +1,14 @@
-from app.agent import restore_authoritative_facts
-from app.models import KnowledgePitfall, SkillBrief, SkillIR
+import pytest
+from pydantic import ValidationError
+
+from app.agent import _coerce_dimension, restore_authoritative_facts
+from app.models import (
+    CriterionScore,
+    JudgeEvaluation,
+    KnowledgePitfall,
+    SkillBrief,
+    SkillIR,
+)
 
 
 def build_brief() -> SkillBrief:
@@ -111,11 +120,73 @@ def test_preserves_model_refinements_while_keeping_mandatory_rules_verbatim() ->
     assert ir.agentKnowledge.unknownKnowledge == ["事实、推断、假设三层分级标注法"]
     assert ir.agentKnowledge.pitfalls[0].description == "引用营销话术却不标注来源类型"
     assert ir.contextEngineering.referenceFiles[0].path == "references/research-method.md"
-    # No fallback reference is forced when the model authored its own files.
-    assert ir.contextEngineering.references == []
+    # Authored files keep their own content, but unknownKnowledge and
+    # supplementalContext only land on disk through the fallback digest, so
+    # the digest must still be added next to authored files.
+    assert ir.contextEngineering.references == ["references/domain-knowledge.md"]
     # User mandatory rules stay verbatim and first; model additions follow.
     assert ir.quality.hardRestrictions == [
         "不得编造来源",
         "每个结论必须附带来源链接",
     ]
     assert ir.agentKnowledge.relatedSkills == brief.relatedSkills
+
+
+def test_authored_domain_knowledge_file_counts_as_digest() -> None:
+    brief = build_brief()
+    payload = empty_ir_payload()
+    payload["contextEngineering"]["referenceFiles"] = [
+        {
+            "path": "references/domain-knowledge.md",
+            "purpose": "需要领域知识时",
+            "content": "# 领域知识\n\n模型整理的内容。",
+        }
+    ]
+
+    ir = restore_authoritative_facts(SkillIR.model_validate(payload), brief)
+
+    # The model authored the digest path itself, so no duplicate is appended.
+    assert ir.contextEngineering.references == []
+
+
+_ACTIVATION_CRITERIA = [
+    "specificity",
+    "completeness",
+    "trigger-term-quality",
+    "distinctiveness-conflict-risk",
+]
+_IMPLEMENTATION_CRITERIA = [
+    "conciseness",
+    "actionability",
+    "workflow-clarity",
+    "progressive-disclosure",
+]
+
+
+def make_evaluation(dimension: str) -> JudgeEvaluation:
+    criteria = (
+        _ACTIVATION_CRITERIA if dimension == "activation" else _IMPLEMENTATION_CRITERIA
+    )
+    return JudgeEvaluation(
+        dimension=dimension,
+        criterionScores=[
+            CriterionScore(criterion=name, score=4, reason="reason", suggestion="none")
+            for name in criteria
+        ],
+        summary="summary",
+    )
+
+
+def test_coerce_dimension_returns_matching_evaluation_unchanged() -> None:
+    evaluation = make_evaluation("activation")
+
+    assert _coerce_dimension(evaluation, "activation") is evaluation
+
+
+def test_coerce_dimension_rejects_wrong_criteria_set() -> None:
+    # A judge that self-declared the other dimension with that dimension's
+    # criteria must fail re-validation instead of slipping through.
+    evaluation = make_evaluation("implementation")
+
+    with pytest.raises(ValidationError):
+        _coerce_dimension(evaluation, "activation")
