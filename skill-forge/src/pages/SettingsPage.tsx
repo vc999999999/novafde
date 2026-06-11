@@ -9,7 +9,7 @@ import {
   testModelProvider,
   updateModelProvider,
 } from '../api';
-import { LLM_PROVIDER_PRESETS, PROVIDER_PROTOCOLS } from '../data';
+import { LLM_PROVIDER_PRESETS, PROTOCOL_DEFAULTS, PROVIDER_PROTOCOLS } from '../data';
 import type {
   ApiKeyRef,
   AppSettings,
@@ -35,13 +35,13 @@ type ProviderForm = ModelProviderConfig & {
 let providerIdCounter = 10;
 const newDraftProviderId = () => `draft_provider_${++providerIdCounter}`;
 
-const emptyProvider = (protocol: ProviderProtocol = 'openai-compatible'): ModelProviderConfig => ({
+const emptyProvider = (protocol: ProviderProtocol = 'anthropic'): ModelProviderConfig => ({
   id: newDraftProviderId(),
   name: '',
   protocol,
-  baseUrl: protocol === 'claude' ? 'https://api.anthropic.com' : 'http://localhost:11434',
-  apiKeyRef: { type: 'env', name: protocol === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY' },
-  defaultModel: protocol === 'claude' ? 'claude-sonnet-4-6' : '',
+  baseUrl: PROTOCOL_DEFAULTS[protocol].baseUrl,
+  apiKeyRef: { type: 'env', name: PROTOCOL_DEFAULTS[protocol].keyEnv },
+  defaultModel: PROTOCOL_DEFAULTS[protocol].model,
   roles: [
     'generation',
     'repair',
@@ -156,10 +156,16 @@ function ProviderEditor({
 }) {
   const [form, setForm] = useState<ProviderForm>({ ...provider, apiKey: '' });
   const [showApiKey, setShowApiKey] = useState(false);
-  const selectedPresetIndex = LLM_PROVIDER_PRESETS.findIndex(
-    (preset) => preset.protocol === form.protocol && preset.baseUrl === form.baseUrl,
+  // 预设选择是显式状态：手动修改 Base URL 等字段不会让下拉框自己跳走。
+  const [presetIndex, setPresetIndex] = useState<number>(() =>
+    LLM_PROVIDER_PRESETS.findIndex(
+      (preset) => preset.protocol === provider.protocol && preset.baseUrl === provider.baseUrl,
+    ),
   );
-  const selectedPreset = selectedPresetIndex >= 0 ? LLM_PROVIDER_PRESETS[selectedPresetIndex] : undefined;
+  const selectedPreset =
+    presetIndex >= 0 && LLM_PROVIDER_PRESETS[presetIndex]?.protocol === form.protocol
+      ? LLM_PROVIDER_PRESETS[presetIndex]
+      : undefined;
   const modelOptions = selectedPreset?.models ?? [];
   const isCustomModel = Boolean(form.defaultModel) && !modelOptions.includes(form.defaultModel);
 
@@ -180,17 +186,19 @@ function ProviderEditor({
           <select
             className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
-            value={selectedPresetIndex >= 0 ? String(selectedPresetIndex) : ''}
+            value={selectedPreset ? String(presetIndex) : ''}
             onChange={(event) => {
               if (event.target.value === '') {
-                setForm((prev) => ({ ...prev, name: '', baseUrl: '', defaultModel: '' }));
+                setPresetIndex(-1);
                 return;
               }
-              const preset = LLM_PROVIDER_PRESETS[Number(event.target.value)];
+              const index = Number(event.target.value);
+              const preset = LLM_PROVIDER_PRESETS[index];
               if (!preset) return;
+              setPresetIndex(index);
               setForm((prev) => ({
                 ...prev,
-                name: preset.label,
+                name: prev.name.trim() ? prev.name : preset.label,
                 protocol: preset.protocol,
                 baseUrl: preset.baseUrl,
                 defaultModel: preset.model,
@@ -219,13 +227,37 @@ function ProviderEditor({
             value={form.protocol}
             onChange={(event) => {
               const protocol = event.target.value as ProviderProtocol;
-              setForm((prev) => ({
-                ...prev,
-                protocol,
-                baseUrl: protocol === 'claude' ? 'https://api.anthropic.com' : 'http://localhost:11434',
-                apiKeyRef: { type: 'env', name: protocol === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY' },
-                defaultModel: protocol === 'claude' ? 'claude-sonnet-4-6' : '',
-              }));
+              setForm((prev) => {
+                if (prev.protocol === protocol) return prev;
+                const prevDefaults = PROTOCOL_DEFAULTS[prev.protocol];
+                const nextDefaults = PROTOCOL_DEFAULTS[protocol];
+                const preset = presetIndex >= 0 ? LLM_PROVIDER_PRESETS[presetIndex] : undefined;
+                // 仅当字段还是旧协议/预设的默认值（或为空）时跟随协议切换，避免清掉用户已填内容。
+                const carry = (current: string, defaults: string[], nextDefault: string) =>
+                  !current.trim() || defaults.includes(current) ? nextDefault : current;
+                return {
+                  ...prev,
+                  protocol,
+                  baseUrl: carry(
+                    prev.baseUrl,
+                    [prevDefaults.baseUrl, preset?.baseUrl ?? ''],
+                    nextDefaults.baseUrl,
+                  ),
+                  defaultModel: carry(
+                    prev.defaultModel,
+                    [prevDefaults.model, preset?.model ?? '', ...(preset?.models ?? [])],
+                    nextDefaults.model,
+                  ),
+                  apiKeyRef: {
+                    ...prev.apiKeyRef,
+                    name: carry(
+                      prev.apiKeyRef.name,
+                      [prevDefaults.keyEnv, preset?.keyEnv ?? ''],
+                      nextDefaults.keyEnv,
+                    ),
+                  },
+                };
+              });
             }}
           >
             {PROVIDER_PROTOCOLS.map((protocol) => (
@@ -279,7 +311,7 @@ function ProviderEditor({
             <Input
               value={form.defaultModel}
               onChange={(e) => set('defaultModel', e.target.value)}
-              placeholder={form.protocol === 'claude' ? 'claude-sonnet-4-6' : '输入 Provider 支持的模型 ID'}
+              placeholder={form.protocol === 'anthropic' ? 'claude-sonnet-4-6' : '输入 Provider 支持的模型 ID'}
             />
           )}
         </div>
@@ -407,6 +439,22 @@ export default function SettingsPage() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
+  // 默认策略下拉只列出具备对应角色的 Provider，与后端按角色解析的逻辑保持一致。
+  const generationProviders = useMemo(
+    () => enabledProviders.filter((provider) => provider.roles.includes('generation')),
+    [enabledProviders],
+  );
+  const repairProviders = useMemo(
+    () => enabledProviders.filter((provider) => provider.roles.includes('repair')),
+    [enabledProviders],
+  );
+  const validateProviders = useMemo(
+    () => enabledProviders.filter((provider) =>
+      provider.roles.includes('activation-evaluation')
+      || provider.roles.includes('implementation-evaluation')
+      || provider.roles.includes('validation-explanation')),
+    [enabledProviders],
+  );
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -462,14 +510,19 @@ export default function SettingsPage() {
     });
   }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, blockOnMissingConfig, debouncedSaveSettings]);
 
-  // Auto-select first enabled provider if current selection is invalid
+  // Auto-select first provider with the matching role if current selection is invalid
   useEffect(() => {
     if (!settingsLoaded.current) return;
-    const firstProvider = enabledProviders[0]?.id ?? '';
-    if (!enabledProviders.some((provider) => provider.id === defaultGenerateProvider)) setDefaultGenerateProvider(firstProvider);
-    if (!enabledProviders.some((provider) => provider.id === defaultRepairProvider)) setDefaultRepairProvider(firstProvider);
-    if (!enabledProviders.some((provider) => provider.id === defaultValidateProvider)) setDefaultValidateProvider(firstProvider);
-  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, enabledProviders]);
+    if (!generationProviders.some((provider) => provider.id === defaultGenerateProvider)) {
+      setDefaultGenerateProvider(generationProviders[0]?.id ?? '');
+    }
+    if (!repairProviders.some((provider) => provider.id === defaultRepairProvider)) {
+      setDefaultRepairProvider(repairProviders[0]?.id ?? '');
+    }
+    if (!validateProviders.some((provider) => provider.id === defaultValidateProvider)) {
+      setDefaultValidateProvider(validateProviders[0]?.id ?? '');
+    }
+  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, generationProviders, repairProviders, validateProviders]);
 
   const persistedEditingProvider = Boolean(editingProvider && providers.some((provider) => provider.id === editingProvider.id));
 
@@ -583,7 +636,7 @@ export default function SettingsPage() {
             <p className="mb-0 text-xs tracking-[0.18em] uppercase text-muted-foreground">模型 Provider</p>
             <Button variant="outline" size="sm" onClick={handleAddProvider} type="button">+ 新增</Button>
           </div>
-          <p className="text-xs text-muted-foreground my-0 mb-4">配置 Claude 协议或 OpenAI-compatible 协议的大模型供应商</p>
+          <p className="text-xs text-muted-foreground my-0 mb-4">配置 Anthropic 协议或 OpenAI-compatible 协议的大模型供应商</p>
 
           {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">正在从后端加载 Provider...</div>}
           {!loading && providers.length === 0 && (
@@ -609,7 +662,7 @@ export default function SettingsPage() {
                     </Badge>
                   </div>
                   <div className="text-xs text-tertiary font-mono">
-                    {provider.protocol === 'claude' ? 'Claude' : 'OpenAI-compat'} · {provider.baseUrl}
+                    {provider.protocol === 'anthropic' ? 'Anthropic' : 'OpenAI-compat'} · {provider.defaultModel} · {provider.baseUrl}
                   </div>
                 </div>
 
@@ -641,48 +694,48 @@ export default function SettingsPage() {
 
         <Card className="mb-6 bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
           <p className="text-xs tracking-[0.18em] uppercase text-muted-foreground mb-2">默认策略</p>
-          <p className="text-xs text-muted-foreground my-0 mb-4">当前生成链路会使用第一个启用且具备 generation 角色的后端 Provider</p>
+          <p className="text-xs text-muted-foreground my-0 mb-4">为每个环节指定默认 Provider，实际调用会落实到该 Provider 配置的模型；未指定或不可用时回退到第一个具备对应角色的启用 Provider</p>
           <div className="flex flex-col gap-4">
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">生成模型</Label>
+              <Label className="text-muted-foreground">生成 Provider / 模型</Label>
               <select
                 className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultGenerateProvider}
                 onChange={(event) => setDefaultGenerateProvider(event.target.value)}
               >
-                {enabledProviders.map((provider) => (
-                  <option key={provider.id} value={provider.id}>{provider.name || '未命名'}</option>
+                {generationProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
-                {enabledProviders.length === 0 && <option value="">无可用 Provider</option>}
+                {generationProviders.length === 0 && <option value="">无具备 generation 角色的 Provider</option>}
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">修复模型</Label>
+              <Label className="text-muted-foreground">修复 Provider / 模型</Label>
               <select
                 className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultRepairProvider}
                 onChange={(event) => setDefaultRepairProvider(event.target.value)}
               >
-                {enabledProviders.map((provider) => (
-                  <option key={provider.id} value={provider.id}>{provider.name || '未命名'}</option>
+                {repairProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
-                {enabledProviders.length === 0 && <option value="">无可用 Provider</option>}
+                {repairProviders.length === 0 && <option value="">无具备 repair 角色的 Provider</option>}
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">校验辅助模型</Label>
+              <Label className="text-muted-foreground">评测 Provider / 模型</Label>
               <select
                 className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
                 value={defaultValidateProvider}
                 onChange={(event) => setDefaultValidateProvider(event.target.value)}
               >
-                {enabledProviders.map((provider) => (
-                  <option key={provider.id} value={provider.id}>{provider.name || '未命名'}</option>
+                {validateProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
-                {enabledProviders.length === 0 && <option value="">无可用 Provider</option>}
+                {validateProviders.length === 0 && <option value="">无具备评测角色的 Provider</option>}
               </select>
             </div>
             <Toggle label="配置缺失时阻止生成" checked={blockOnMissingConfig} onChange={setBlockOnMissingConfig} />

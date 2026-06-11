@@ -64,8 +64,8 @@ def create_generation_provider(client: TestClient) -> dict:
     response = client.post(
         "/api/model-providers",
         json={
-            "name": "claude-primary",
-            "protocol": "claude",
+            "name": "anthropic-primary",
+            "protocol": "anthropic",
             "baseUrl": "https://api.example.test",
             "apiKeyRef": {"type": "env", "name": "SKILLFORGE_TEST_API_KEY"},
             "defaultModel": "test-model",
@@ -130,7 +130,10 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     assert preview_response.status_code == 200
     preview = preview_response.json()
     assert preview["skillMd"].startswith("---\nname: product-research")
-    assert "## When to Use" in preview["skillMd"]
+    assert "## Workflow" in preview["skillMd"]
+    # The trigger description lives in frontmatter only; the body must not
+    # repeat it verbatim.
+    assert "## When to Use" not in preview["skillMd"]
     assert preview["files"][0]["name"] == "product-research"
 
     validation_response = client.get(f"/api/generations/{generation['id']}/validation")

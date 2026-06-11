@@ -88,14 +88,28 @@ export const STEP_COMPLETION_WEIGHTS: Record<StepKey, (draft: SkillDraft) => num
 };
 
 export const PROVIDER_PROTOCOLS = [
-  { value: 'claude' as const, label: 'Claude 协议', desc: 'Anthropic Claude API v1/v2' },
-  { value: 'openai-compatible' as const, label: 'OpenAI-compatible 协议', desc: '兼容 OpenAI 格式的 API（如 Ollama、vLLM）' },
+  { value: 'anthropic' as const, label: 'Anthropic 协议', desc: 'Anthropic Messages API（Claude 系列模型）' },
+  { value: 'openai-compatible' as const, label: 'OpenAI-compatible 协议', desc: '兼容 OpenAI Chat Completions 格式的 API（如 OpenAI、DeepSeek、Ollama、vLLM）' },
 ];
+
+// 各协议的推荐默认值；仅在对应字段仍是默认值/为空时随协议切换自动替换。
+export const PROTOCOL_DEFAULTS = {
+  anthropic: {
+    baseUrl: 'https://api.anthropic.com',
+    keyEnv: 'ANTHROPIC_API_KEY',
+    model: 'claude-sonnet-4-6',
+  },
+  'openai-compatible': {
+    baseUrl: '',
+    keyEnv: 'OPENAI_API_KEY',
+    model: '',
+  },
+} as const;
 
 export const LLM_PROVIDER_PRESETS = [
   {
     label: 'Anthropic Claude',
-    protocol: 'claude' as const,
+    protocol: 'anthropic' as const,
     baseUrl: 'https://api.anthropic.com',
     model: 'claude-sonnet-4-6',
     keyEnv: 'ANTHROPIC_API_KEY',

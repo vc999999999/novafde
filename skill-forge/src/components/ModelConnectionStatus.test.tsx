@@ -11,7 +11,7 @@ test('shows the connected model in the single global status control', () => {
           id: 'provider_1',
           name: 'Claude',
           model: 'claude-sonnet',
-          protocol: 'claude',
+          protocol: 'anthropic',
         },
         judgeProvider: null,
         checkedAt: '2026-06-10T00:00:00Z',

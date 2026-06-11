@@ -17,7 +17,7 @@ def make_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(Settings(data_dir=tmp_path), agents=build_test_agents()))
 
 
-def build_provider_payload(protocol: str = "claude") -> dict:
+def build_provider_payload(protocol: str = "anthropic") -> dict:
     return {
         "name": f"{protocol}-primary",
         "protocol": protocol,
@@ -45,7 +45,7 @@ def test_provider_config_api_masks_keys_and_rejects_sensitive_header(tmp_path: P
     assert create_response.status_code == 201
     provider = create_response.json()
     assert provider["id"].startswith("provider_")
-    assert provider["protocol"] == "claude"
+    assert provider["protocol"] == "anthropic"
     assert provider["apiKeyRef"] == {"type": "env", "name": "SKILLFORGE_TEST_API_KEY"}
     assert "secret-token" not in json.dumps(provider)
 
@@ -70,7 +70,7 @@ def test_provider_create_accepts_user_key_without_leaking_it(tmp_path: Path, mon
     client = TestClient(create_app(settings))
 
     payload = {
-        **build_provider_payload("claude"),
+        **build_provider_payload("anthropic"),
         "apiKeyRef": {"type": "env", "name": "SKILLFORGE_UI_TEST_API_KEY"},
         "apiKey": "secret-token-from-ui",
     }
@@ -86,8 +86,9 @@ def test_provider_create_accepts_user_key_without_leaking_it(tmp_path: Path, mon
     assert os.environ.get("SKILLFORGE_UI_TEST_API_KEY") is None
 
 
-def test_app_loads_local_provider_config_file(tmp_path: Path) -> None:
+def test_app_loads_local_provider_config_file_and_normalizes_legacy_protocol(tmp_path: Path) -> None:
     provider_config_path = tmp_path / "providers.local.json"
+    # Local config files written before the rename used protocol "claude".
     provider_config_path.write_text(
         json.dumps([{**build_provider_payload("claude"), "id": "provider_local"}], ensure_ascii=False),
         encoding="utf-8",
@@ -99,6 +100,7 @@ def test_app_loads_local_provider_config_file(tmp_path: Path) -> None:
     providers = response.json()
     assert len(providers) == 1
     assert providers[0]["id"] == "provider_local"
+    assert providers[0]["protocol"] == "anthropic"
     assert providers[0]["apiKeyRef"]["name"] == "SKILLFORGE_TEST_API_KEY"
 
 
@@ -130,12 +132,12 @@ def test_generation_is_blocked_without_enabled_generation_provider(tmp_path: Pat
 def test_generation_records_provider_metadata_when_configured(tmp_path: Path, monkeypatch) -> None:
     client = make_client(tmp_path)
     monkeypatch.setenv("SKILLFORGE_TEST_API_KEY", "secret-token")
-    provider = client.post("/api/model-providers", json=build_provider_payload("claude")).json()
+    provider = client.post("/api/model-providers", json=build_provider_payload("anthropic")).json()
     client.app.state.service.storage.save_provider_test_result(
         provider["id"],
         ProviderTestResult(
             status="passed",
-            protocol="claude",
+            protocol="anthropic",
             model=provider["defaultModel"],
             latencyMs=1,
             testedAt="2026-06-10T00:00:00Z",
@@ -150,7 +152,7 @@ def test_generation_records_provider_metadata_when_configured(tmp_path: Path, mo
     generation = generation_response.json()
     assert generation["status"] == "succeeded"
     assert generation["modelProviderId"] == provider["id"]
-    assert generation["modelProtocol"] == "claude"
+    assert generation["modelProtocol"] == "anthropic"
     assert generation["providerConnectionRisk"] is None
 
 
@@ -163,16 +165,16 @@ def test_runtime_builds_protocol_specific_minimal_connection_requests(monkeypatc
         return httpx.Response(200, json={"ok": True})
 
     runtime = ModelProviderRuntime(transport=httpx.MockTransport(handler))
-    claude_provider = ModelProviderConfig.model_validate({**build_provider_payload("claude"), "id": "provider_claude"})
+    anthropic_provider = ModelProviderConfig.model_validate({**build_provider_payload("anthropic"), "id": "provider_anthropic"})
     openai_provider = ModelProviderConfig.model_validate({**build_provider_payload("openai-compatible"), "id": "provider_openai"})
 
-    assert runtime.test_connection(claude_provider).status == "passed"
+    assert runtime.test_connection(anthropic_provider).status == "passed"
     assert runtime.test_connection(openai_provider).status == "passed"
 
-    claude_request = seen_requests[0]
-    assert claude_request.url.path == "/v1/messages"
-    assert claude_request.headers["x-api-key"] == "secret-token"
-    assert json.loads(claude_request.content)["max_tokens"] == 1
+    anthropic_request = seen_requests[0]
+    assert anthropic_request.url.path == "/v1/messages"
+    assert anthropic_request.headers["x-api-key"] == "secret-token"
+    assert json.loads(anthropic_request.content)["max_tokens"] == 1
 
     openai_request = seen_requests[1]
     assert openai_request.url.path == "/v1/chat/completions"

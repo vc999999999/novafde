@@ -93,7 +93,7 @@ class PydanticAgentRuntime:
                 f"Missing API key: environment variable {provider.apiKeyRef.name} is not set."
             )
         timeout = provider.timeoutMs / 1000
-        if provider.protocol == "claude":
+        if provider.protocol == "anthropic":
             client = AsyncAnthropic(
                 api_key=api_key,
                 base_url=provider.baseUrl,
@@ -161,13 +161,13 @@ class ModelProviderRuntime:
 
     def _endpoint_for(self, provider: ModelProviderConfig) -> str:
         base = provider.baseUrl.rstrip("/")
-        if provider.protocol == "claude":
+        if provider.protocol == "anthropic":
             return f"{base}/v1/messages"
         return f"{_openai_base_url(base)}/chat/completions"
 
     def _headers_for(self, provider: ModelProviderConfig, api_key: str) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json", **provider.customHeaders}
-        if provider.protocol == "claude":
+        if provider.protocol == "anthropic":
             headers["x-api-key"] = api_key
             headers["anthropic-version"] = "2023-06-01"
         else:
@@ -175,7 +175,7 @@ class ModelProviderRuntime:
         return headers
 
     def _payload_for(self, provider: ModelProviderConfig, messages: list[dict[str, str]], *, system: str | None = None, max_tokens: int = 2048) -> dict[str, Any]:
-        if provider.protocol == "claude":
+        if provider.protocol == "anthropic":
             payload: dict[str, Any] = {
                 "model": provider.defaultModel,
                 "max_tokens": max_tokens,

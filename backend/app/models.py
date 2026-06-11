@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 
 
 TargetPlatform = Literal["claude-code", "codex", "hermes-openclaw"]
@@ -61,7 +61,17 @@ HistoryItemStatus = Literal[
     "failed",
 ]
 InputLayer = Literal["required", "derived", "advanced"]
-ModelProviderProtocol = Literal["claude", "openai-compatible"]
+def _normalize_provider_protocol(value: Any) -> Any:
+    # Configs persisted before the rename stored the protocol as "claude".
+    if value == "claude":
+        return "anthropic"
+    return value
+
+
+ModelProviderProtocol = Annotated[
+    Literal["anthropic", "openai-compatible"],
+    BeforeValidator(_normalize_provider_protocol),
+]
 ProviderRole = Literal[
     "generation",
     "repair",

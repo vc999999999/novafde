@@ -165,7 +165,7 @@ export interface HistoryItem {
 
 // --- Provider config types (PRD FR-10, FR-11) ---
 
-export type ProviderProtocol = 'claude' | 'openai-compatible';
+export type ProviderProtocol = 'anthropic' | 'openai-compatible';
 
 export type ProviderRole =
   | 'generation'
