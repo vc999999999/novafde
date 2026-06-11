@@ -87,6 +87,47 @@ def test_provider_create_accepts_user_key_without_leaking_it(tmp_path: Path, mon
     assert os.environ.get("SKILLFORGE_UI_TEST_API_KEY") is None
 
 
+def test_deleting_provider_clears_its_stored_secret(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("SKILLFORGE_UI_TEST_API_KEY", raising=False)
+    settings = Settings(data_dir=tmp_path / "data", use_system_keyring=False)
+    client = TestClient(create_app(settings))
+    service = client.app.state.service
+
+    payload = {
+        **build_provider_payload("anthropic"),
+        "apiKeyRef": {"type": "env", "name": "SKILLFORGE_UI_TEST_API_KEY"},
+        "apiKey": "secret-token-from-ui",
+    }
+    provider = client.post("/api/model-providers", json=payload).json()
+    assert service.secret_store.get("SKILLFORGE_UI_TEST_API_KEY") == "secret-token-from-ui"
+
+    delete_response = client.delete(f"/api/model-providers/{provider['id']}")
+    assert delete_response.status_code == 204
+    # The orphaned key must not linger in the store after the provider is gone.
+    assert service.secret_store.get("SKILLFORGE_UI_TEST_API_KEY") is None
+
+
+def test_deleting_provider_keeps_secret_shared_with_another_provider(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("SKILLFORGE_SHARED_TEST_KEY", raising=False)
+    settings = Settings(data_dir=tmp_path / "data", use_system_keyring=False)
+    client = TestClient(create_app(settings))
+    service = client.app.state.service
+
+    shared_ref = {"type": "env", "name": "SKILLFORGE_SHARED_TEST_KEY"}
+    first = client.post(
+        "/api/model-providers",
+        json={**build_provider_payload("anthropic"), "apiKeyRef": shared_ref, "apiKey": "shared-secret"},
+    ).json()
+    client.post(
+        "/api/model-providers",
+        json={**build_provider_payload("openai-compatible"), "apiKeyRef": shared_ref},
+    )
+
+    assert client.delete(f"/api/model-providers/{first['id']}").status_code == 204
+    # A second provider still references the key, so it must be preserved.
+    assert service.secret_store.get("SKILLFORGE_SHARED_TEST_KEY") == "shared-secret"
+
+
 def test_app_loads_local_provider_config_file_and_normalizes_legacy_protocol(tmp_path: Path) -> None:
     provider_config_path = tmp_path / "providers.local.json"
     # Local config files written before the rename used protocol "claude".

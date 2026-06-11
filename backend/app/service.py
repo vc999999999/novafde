@@ -488,10 +488,28 @@ class SkillForgeService:
         updated = ModelProviderConfig.model_validate(merged)
         if api_key:
             self.secret_store.set(updated.apiKeyRef.name, api_key)
-        return self.storage.save_provider(updated, now_ms())
+        saved = self.storage.save_provider(updated, now_ms())
+        # If the key reference was renamed, drop the now-orphaned secret so a
+        # stale key cannot linger in the keychain after the provider moved on.
+        if updated.apiKeyRef.name != provider.apiKeyRef.name:
+            self._forget_secret_if_unused(provider.apiKeyRef.name)
+        return saved
 
     def delete_provider(self, provider_id: str) -> bool:
-        return self.storage.delete_provider(provider_id)
+        provider = self.storage.get_provider(provider_id)
+        deleted = self.storage.delete_provider(provider_id)
+        # Remove the stored API key too, so deleting a provider really clears
+        # its secret instead of leaving it behind in the keychain.
+        if deleted and provider is not None:
+            self._forget_secret_if_unused(provider.apiKeyRef.name)
+        return deleted
+
+    def _forget_secret_if_unused(self, key_name: str) -> None:
+        still_referenced = any(
+            other.apiKeyRef.name == key_name for other in self.storage.list_providers()
+        )
+        if not still_referenced:
+            self.secret_store.delete(key_name)
 
     def test_provider(self, provider_id: str) -> ProviderTestResult | None:
         provider = self.storage.get_provider(provider_id)

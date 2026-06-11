@@ -47,6 +47,24 @@ class SecretStore:
                 pass
         return self._read_encrypted().get(name)
 
+    def delete(self, name: str) -> None:
+        """Remove a stored secret from every backend it may live in.
+
+        Best-effort: a key may have been written to the keychain on one run and
+        the encrypted file on another, so both are cleared regardless of the
+        current ``prefer_keyring`` setting.
+        """
+        try:
+            import keyring
+
+            keyring.delete_password(self.service_name, name)
+        except Exception:
+            pass
+        secrets = self._read_encrypted()
+        if name in secrets:
+            del secrets[name]
+            self._write_encrypted(secrets)
+
     def _fernet(self) -> Fernet:
         self.key_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.key_path.exists():
