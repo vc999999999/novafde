@@ -418,14 +418,7 @@ export default function CreatePage({
             isFailed={generation?.status === 'failed'}
           />
         )}
-        {(skillSpec || skillSpecError) && (
-          <SkillSpecPanel
-            response={skillSpec}
-            error={skillSpecError}
-            compact
-            className="fixed bottom-5 right-5 z-50 w-[min(380px,calc(100%-2rem))]"
-          />
-        )}
+
         {isAwaitingInput && generation.userQuestions.length > 0 && (
           <SupplementDialog
             key={generation.userQuestions.map((question) => question.issueId).join(':')}
@@ -599,6 +592,15 @@ export default function CreatePage({
           className="animate-step-in top-[72px] flex flex-col gap-3 self-stretch lg:sticky"
           style={{ '--enter-delay': '120ms' } as CSSProperties}
         >
+          {/* 生成规格面板 */}
+          {(skillSpec || skillSpecError) && (
+            <SkillSpecPanel
+              response={skillSpec}
+              error={skillSpecError}
+              compact
+            />
+          )}
+
           {generation.qualityReport && <QualityScorePanel report={generation.qualityReport} />}
 
           <Card className="border-panel-border bg-panel p-4 shadow-md">
