@@ -3,14 +3,17 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
 
 from app.models import (
     AppSettings,
     GenerationCreateRequest,
     GenerationResult,
+    InstallRequest,
+    InstallResult,
     ModelProviderConfig,
     ModelProviderConfigCreate,
     ModelProviderConfigPatch,
@@ -19,7 +22,12 @@ from app.models import (
     SupplementRequest,
 )
 from app.agent import SkillAgentRuntime
-from app.service import SkillForgeService
+from app.service import (
+    DraftDeleteConflictError,
+    InstallConflictError,
+    InstallUnavailableError,
+    SkillForgeService,
+)
 from app.settings import Settings
 
 
@@ -49,6 +57,14 @@ def create_app(
 
     app = FastAPI(title="SkillForge Backend", version="0.2.0", lifespan=lifespan)
     app.state.service = service
+
+    @app.exception_handler(ValidationError)
+    async def handle_payload_validation_error(
+        _request: Request, error: ValidationError
+    ) -> JSONResponse:
+        first = error.errors()[0] if error.errors() else {}
+        message = first.get("msg", "invalid payload")
+        return JSONResponse(status_code=422, content={"detail": message})
 
     app.add_middleware(
         CORSMiddleware,
@@ -106,6 +122,15 @@ def create_app(
         if draft is None:
             raise HTTPException(status_code=404, detail="Draft not found")
         return draft
+
+    @app.delete("/api/drafts/{draft_id}", status_code=204)
+    def delete_draft(draft_id: str) -> None:
+        try:
+            deleted = service.delete_draft(draft_id)
+        except DraftDeleteConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Draft not found")
 
     @app.post("/api/drafts/{draft_id}/generate", response_model=GenerationResult, status_code=201)
     def generate(draft_id: str) -> GenerationResult:
@@ -229,6 +254,28 @@ def create_app(
         if path is None:
             raise HTTPException(status_code=404, detail="Download not found")
         return FileResponse(path, media_type="application/zip", filename=path.name)
+
+    @app.post("/api/generations/{generation_id}/install", response_model=InstallResult)
+    def install(generation_id: str, payload: InstallRequest) -> InstallResult:
+        try:
+            result = service.install_skill(generation_id, payload)
+        except InstallConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "INSTALL_TARGET_EXISTS",
+                    "message": "目标目录已存在同名 Skill，确认后可覆盖安装。",
+                    "path": str(exc.path),
+                },
+            ) from exc
+        except InstallUnavailableError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "INSTALL_UNAVAILABLE", "message": str(exc)},
+            ) from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        return result
 
     @app.post("/api/generations/{generation_id}/regenerate", response_model=GenerationResult, status_code=201)
     def regenerate(generation_id: str) -> GenerationResult:

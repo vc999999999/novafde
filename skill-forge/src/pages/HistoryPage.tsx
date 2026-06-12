@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { History } from 'lucide-react';
-import { listHistory, startGeneration } from '../api';
+import { History, Trash2 } from 'lucide-react';
+import { deleteHistoryItem, listHistory, startGeneration } from '../api';
 import PageHeader from '../components/PageHeader';
 import type {
   HistoryItem,
@@ -51,6 +51,7 @@ export default function HistoryPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -97,6 +98,26 @@ export default function HistoryPage({
       }
     },
     [loadHistory],
+  );
+
+  const handleDelete = useCallback(
+    async (item: HistoryItem) => {
+      const confirmed = window.confirm(
+        `确认删除「${item.displayName}」吗？\n该记录及其全部生成结果将被永久删除。`,
+      );
+      if (!confirmed) return;
+      setDeletingId(item.id);
+      setError(null);
+      try {
+        await deleteHistoryItem(item.id);
+        setItems((current) => current.filter((entry) => entry.id !== item.id));
+      } catch (err) {
+        setError(messageFromError(err));
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [],
   );
 
   return (
@@ -244,24 +265,38 @@ export default function HistoryPage({
                   <span>更新: {item.updatedAt}</span>
                 </div>
 
-                <Button
-                  variant={item.status === 'failed' ? 'destructive' : 'default'}
-                  className="mt-3 w-full"
-                  type="button"
-                  onClick={() => {
-                    if (opensExistingGeneration) {
-                      onOpenGeneration(item.generationId as string);
-                    } else {
-                      void handleGenerate(item.id);
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant={item.status === 'failed' ? 'destructive' : 'default'}
+                    className="flex-1"
+                    type="button"
+                    onClick={() => {
+                      if (opensExistingGeneration) {
+                        onOpenGeneration(item.generationId as string);
+                      } else {
+                        void handleGenerate(item.id);
+                      }
+                    }}
+                    disabled={
+                      isBusy
+                      || (item.status === 'draft' && connection.status !== 'connected')
                     }
-                  }}
-                  disabled={
-                    isBusy
-                    || (item.status === 'draft' && connection.status !== 'connected')
-                  }
-                >
-                  {isBusy ? '生成中...' : actionLabel}
-                </Button>
+                  >
+                    {isBusy ? '生成中...' : actionLabel}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    type="button"
+                    aria-label={`删除 ${item.displayName}`}
+                    title="删除记录"
+                    className="shrink-0 text-text-secondary hover:border-error-border hover:bg-error-dim hover:text-error"
+                    onClick={() => void handleDelete(item)}
+                    disabled={deletingId === item.id || isBusy}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );

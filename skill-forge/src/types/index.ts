@@ -92,6 +92,17 @@ export interface KnowledgeInfo {
   relatedSkills: string[];
 }
 
+export interface OutputSpecFile {
+  name: string;
+  size: number;
+  content: string;
+}
+
+export interface SupplementInfo {
+  content: string;
+  outputSpecFiles: OutputSpecFile[];
+}
+
 export interface SkillDraft {
   id: string;
   status?: 'draft';
@@ -100,9 +111,7 @@ export interface SkillDraft {
   targetPlatforms: TargetPlatform[];
   purpose: PurposeInfo;
   knowledge: KnowledgeInfo;
-  supplement: {
-    content: string;
-  };
+  supplement: SupplementInfo;
   createdAt: number;
   updatedAt: number;
 }
@@ -244,6 +253,22 @@ export interface DownloadInfo {
   platforms: string[];
   fileCount: number;
   size: string;
+}
+
+export interface InstallRequest {
+  platform?: TargetPlatform;
+  targetDir?: string;
+  overwrite?: boolean;
+}
+
+export interface InstallResult {
+  generationId: string;
+  skillName: string;
+  platform: TargetPlatform | null;
+  installedPath: string;
+  fileCount: number;
+  overwrote: boolean;
+  installedAt: string;
 }
 
 export type HistoryItemStatus =

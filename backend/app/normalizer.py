@@ -23,6 +23,7 @@ def normalize_draft(draft: SkillDraft) -> tuple[SkillBrief, list[ValidationItem]
         )
     ]
     supplement = draft.supplement.content.strip()
+    output_spec_files = draft.supplement.outputSpecFiles
     all_text = "\n".join(
         [
             purpose.usage,
@@ -49,6 +50,7 @@ def normalize_draft(draft: SkillDraft) -> tuple[SkillBrief, list[ValidationItem]
         pitfalls=pitfalls,
         relatedSkills=related_skills,
         supplementalContext=supplement,
+        outputSpecFiles=output_spec_files,
         targetPlatforms=draft.targetPlatforms,
         outputLanguage=_infer_output_language(all_text),
         needsReferences=bool(
@@ -57,12 +59,13 @@ def normalize_draft(draft: SkillDraft) -> tuple[SkillBrief, list[ValidationItem]
             or pitfalls
             or related_skills
             or supplement
+            or output_spec_files
         ),
         needsScripts=_contains_any(
             all_text,
             ["脚本", "自动化", "命令行", "批量处理", "script", "automation", "command"],
         ),
-        needsAssets=_contains_any(
+        needsAssets=bool(output_spec_files) or _contains_any(
             all_text,
             ["模板", "样例文件", "示例文件", "素材", "template", "sample file", "asset"],
         ),

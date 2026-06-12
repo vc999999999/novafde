@@ -5,6 +5,8 @@ import type {
   ErrorPattern,
   GenerationResult,
   HistoryItem,
+  InstallRequest,
+  InstallResult,
   ModelConnectionStatus,
   ModelProviderConfig,
   ModelProviderPayload,
@@ -79,6 +81,12 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function listHistory() {
   return apiRequest<HistoryItem[]>('/api/history');
+}
+
+export function deleteHistoryItem(draftId: string) {
+  return apiRequest<void>(`/api/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export function listRules() {
@@ -171,6 +179,16 @@ export function regenerateGeneration(generationId: string) {
   return apiRequest<GenerationResult>(`/api/generations/${encodeURIComponent(generationId)}/regenerate`, {
     method: 'POST',
   });
+}
+
+export function installGeneration(generationId: string, payload: InstallRequest = {}) {
+  return apiRequest<InstallResult>(
+    `/api/generations/${encodeURIComponent(generationId)}/install`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export function toGenerationDownloadUrl(generationId: string) {

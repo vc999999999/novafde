@@ -70,7 +70,7 @@ export function createBlankDraft(): SkillDraft {
       pitfalls: [],
       relatedSkills: [],
     },
-    supplement: { content: '' },
+    supplement: { content: '', outputSpecFiles: [] },
     createdAt: now,
     updatedAt: now,
   };

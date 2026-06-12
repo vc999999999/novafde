@@ -150,8 +150,56 @@ class KnowledgeInfo(BaseModel):
     relatedSkills: list[str] = Field(default_factory=list)
 
 
+# Output spec files are embedded into LLM prompts, so only text formats are
+# accepted and content is capped to keep prompt size manageable.
+OUTPUT_SPEC_ALLOWED_EXTENSIONS = {
+    "md", "markdown", "txt", "json", "yaml", "yml", "csv", "tsv", "xml", "html",
+}
+OUTPUT_SPEC_MAX_CONTENT_CHARS = 65_536  # 64 KB
+OUTPUT_SPEC_MAX_FILES = 3
+
+
+class OutputSpecFile(BaseModel):
+    name: str
+    size: int = 0
+    content: str
+
+    @field_validator("name")
+    @classmethod
+    def name_must_be_safe_text_file(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("output spec file name must not be empty")
+        if "/" in cleaned or "\\" in cleaned or cleaned.startswith(".."):
+            raise ValueError("output spec file name must not contain path separators")
+        extension = cleaned.rsplit(".", 1)[-1].lower() if "." in cleaned else ""
+        if extension not in OUTPUT_SPEC_ALLOWED_EXTENSIONS:
+            allowed = ", ".join(sorted(OUTPUT_SPEC_ALLOWED_EXTENSIONS))
+            raise ValueError(f"unsupported output spec file type, allowed: {allowed}")
+        return cleaned
+
+    @field_validator("content")
+    @classmethod
+    def content_must_fit_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("output spec file content must not be empty")
+        if len(value) > OUTPUT_SPEC_MAX_CONTENT_CHARS:
+            raise ValueError(
+                f"output spec file content exceeds {OUTPUT_SPEC_MAX_CONTENT_CHARS} characters"
+            )
+        return value
+
+
 class SupplementInfo(BaseModel):
     content: str = ""
+    outputSpecFiles: list[OutputSpecFile] = Field(default_factory=list)
+
+    @field_validator("outputSpecFiles")
+    @classmethod
+    def output_spec_files_must_be_few(cls, value: list[OutputSpecFile]) -> list[OutputSpecFile]:
+        if len(value) > OUTPUT_SPEC_MAX_FILES:
+            raise ValueError(f"at most {OUTPUT_SPEC_MAX_FILES} output spec files are allowed")
+        return value
 
 
 class SkillDraft(BaseModel):
@@ -188,6 +236,7 @@ class SkillBrief(BaseModel):
     pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
     relatedSkills: list[str] = Field(default_factory=list)
     supplementalContext: str = ""
+    outputSpecFiles: list[OutputSpecFile] = Field(default_factory=list)
     targetPlatforms: list[TargetPlatform] = Field(default_factory=lambda: ["claude-code"])
     outputLanguage: OutputLanguage = "zh-CN"
     workflowSteps: list[WorkflowStep] = Field(default_factory=list)
@@ -613,6 +662,22 @@ class DownloadInfo(BaseModel):
     platforms: list[str]
     fileCount: int
     size: str
+
+
+class InstallRequest(BaseModel):
+    platform: TargetPlatform | None = None
+    targetDir: str | None = None
+    overwrite: bool = False
+
+
+class InstallResult(BaseModel):
+    generationId: str
+    skillName: str
+    platform: TargetPlatform | None = None
+    installedPath: str
+    fileCount: int
+    overwrote: bool
+    installedAt: str
 
 
 class GenerationResult(BaseModel):

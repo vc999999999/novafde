@@ -218,6 +218,42 @@ class Storage:
             drafts.append(draft)
         return drafts
 
+    def delete_draft_cascade(self, draft_id: str) -> list[str] | None:
+        """Delete a draft and all data tied to its generations.
+
+        Returns the ids of the deleted generations, or None when the draft
+        does not exist.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            generation_ids = [
+                generation_row["id"]
+                for generation_row in connection.execute(
+                    "SELECT id FROM generations WHERE draft_id = ?", (draft_id,)
+                ).fetchall()
+            ]
+            if generation_ids:
+                placeholders = ",".join("?" * len(generation_ids))
+                for table, column in (
+                    ("run_events", "run_id"),
+                    ("user_supplements", "run_id"),
+                    ("quality_reports", "run_id"),
+                    ("generation_attempts", "run_id"),
+                ):
+                    connection.execute(
+                        f"DELETE FROM {table} WHERE {column} IN ({placeholders})",
+                        generation_ids,
+                    )
+                connection.execute(
+                    "DELETE FROM generations WHERE draft_id = ?", (draft_id,)
+                )
+            connection.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+        return generation_ids
+
     def save_generation(self, generation: GenerationResult) -> GenerationResult:
         payload = json.dumps(generation.model_dump(mode="json"), ensure_ascii=False)
         with self._connect() as connection:

@@ -11,6 +11,13 @@ PLATFORM_LABELS: dict[TargetPlatform, str] = {
     "hermes-openclaw": "Hermes/OpenClaw",
 }
 
+# Personal-scope install locations; must stay consistent with _guide_for below.
+DEFAULT_INSTALL_DIRS: dict[TargetPlatform, str] = {
+    "claude-code": "~/.claude/skills",
+    "codex": "~/.agents/skills",
+    "hermes-openclaw": "~/.hermes/skills",
+}
+
 
 def write_install_guides(package_root: Path, ir: SkillIR) -> list[Path]:
     install_dir = package_root / "install"

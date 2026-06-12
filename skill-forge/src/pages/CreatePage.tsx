@@ -13,11 +13,13 @@ import QualityScorePanel from '../components/QualityScorePanel';
 import SupplementDialog from '../components/SupplementDialog';
 import SkillSpecPanel from '../components/SkillSpecPanel';
 import {
+  ApiError,
   cancelGeneration,
   createDraft,
   patchDraft,
   getGeneration,
   getGenerationSpec,
+  installGeneration,
   startGeneration,
   submitGenerationSupplement,
   toGenerationDownloadUrl,
@@ -26,6 +28,7 @@ import { useDraft } from '../hooks/useDraft';
 import { STEP_COMPLETION_WEIGHTS, STEP_KEYS, STEP_LABELS } from '../data';
 import type {
   GenerationResult,
+  InstallResult,
   ModelConnectionStatus,
   SkillSpecResponse,
   SupplementAnswer,
@@ -34,7 +37,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowRight, CircleAlert, CircleCheck, CircleX, Download } from 'lucide-react';
+import { ArrowRight, CircleAlert, CircleCheck, CircleX, Download, HardDriveDownload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Phase = 'form' | 'generating' | 'result';
@@ -80,6 +83,9 @@ export default function CreatePage({
   const [autosavedDraftId, setAutosavedDraftId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [installResult, setInstallResult] = useState<InstallResult | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [isSubmittingSupplement, setIsSubmittingSupplement] = useState(false);
   const [pollingEnabled, setPollingEnabled] = useState(
     Boolean(resumeGenerationId),
@@ -117,7 +123,8 @@ export default function CreatePage({
       || draft.knowledge.professionalInformation.length
       || draft.knowledge.mandatoryRules.length
       || draft.knowledge.pitfalls.length
-      || draft.supplement.content.trim(),
+      || draft.supplement.content.trim()
+      || draft.supplement.outputSpecFiles.length,
     );
     if (!hasContent) return;
 
@@ -282,6 +289,8 @@ export default function CreatePage({
     setPhase('form');
     setGenerationError(null);
     setIsCancelling(false);
+    setInstallResult(null);
+    setInstallError(null);
   }, []);
 
   const handleNewDraft = useCallback(() => {
@@ -294,8 +303,36 @@ export default function CreatePage({
     setSkillSpec(null);
     setSkillSpecError(null);
     setFormError(null);
+    setInstallResult(null);
+    setInstallError(null);
     setPhase('form');
   }, [resetDraft]);
+
+  const handleInstall = useCallback(async () => {
+    if (!generation || isInstalling) return;
+    setIsInstalling(true);
+    setInstallError(null);
+    setInstallResult(null);
+    try {
+      try {
+        setInstallResult(await installGeneration(generation.id));
+      } catch (error) {
+        const detail = error instanceof ApiError && error.status === 409
+          ? (error.detail as { detail?: { code?: string; path?: string } } | null)?.detail
+          : undefined;
+        if (detail?.code !== 'INSTALL_TARGET_EXISTS') throw error;
+        const confirmed = window.confirm(
+          `目标目录已存在同名 Skill：\n${detail.path}\n\n确认覆盖安装吗？`,
+        );
+        if (!confirmed) return;
+        setInstallResult(await installGeneration(generation.id, { overwrite: true }));
+      }
+    } catch (error) {
+      setInstallError(messageFromError(error));
+    } finally {
+      setIsInstalling(false);
+    }
+  }, [generation, isInstalling]);
 
   if (phase === 'form') {
     const stepKey = STEP_KEYS[currentStep];
@@ -387,8 +424,8 @@ export default function CreatePage({
               {stepKey === 'knowledge' && <KnowledgeStep draft={draft} onUpdateKnowledge={updateKnowledge} />}
               {stepKey === 'supplement' && (
                 <SupplementStep
-                  content={draft.supplement.content}
-                  onChange={(content) => updateDraft({ supplement: { content } })}
+                  supplement={draft.supplement}
+                  onUpdate={(supplement) => updateDraft({ supplement })}
                 />
               )}
             </div>
@@ -525,6 +562,9 @@ export default function CreatePage({
       ? 'border-error-border bg-error-dim text-error'
       : 'border-warning-border bg-warning-dim text-warning';
   const downloadInfo = generation.downloadInfo;
+  const hasArtifacts = generation.files.length > 0
+    || Boolean(generation.skillMd)
+    || generation.validation.length > 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -558,9 +598,20 @@ export default function CreatePage({
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
+            {downloadable && (
+              <Button
+                type="button"
+                onClick={() => void handleInstall()}
+                disabled={isInstalling}
+              >
+                <HardDriveDownload className="size-4" />
+                {isInstalling ? '安装中…' : '安装到本地'}
+              </Button>
+            )}
             {downloadable && downloadInfo && (
               <Button
                 type="button"
+                variant="outline"
                 onClick={() => window.location.assign(toGenerationDownloadUrl(generation.id))}
               >
                 <Download className="size-4" />
@@ -573,72 +624,38 @@ export default function CreatePage({
         </div>
       </Card>
 
-      <div className="grid flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-[1fr_var(--sidebar-width)]">
+      {installResult && (
+        <Alert className="animate-step-in mb-3 border-success-border bg-success-dim text-success">
+          <AlertDescription>
+            已安装到 <span className="font-mono">{installResult.installedPath}</span>
+            （{installResult.fileCount} 个文件{installResult.overwrote ? '，已覆盖原有版本' : ''}）。
+            重启或刷新对应平台后即可使用。
+          </AlertDescription>
+        </Alert>
+      )}
+      {installError && (
+        <Alert className="animate-step-in mb-3 border-warning-border bg-warning-dim text-warning">
+          <AlertDescription>安装失败：{installError}</AlertDescription>
+        </Alert>
+      )}
+
+      {generationError && (
+        <Alert className="animate-step-in mb-3 border-warning-border bg-warning-dim text-warning">
+          <AlertDescription>{generationError}</AlertDescription>
+        </Alert>
+      )}
+      {generation.errorMessage && (
+        <Alert className="animate-step-in mb-3 border-warning-border bg-warning-dim text-warning">
+          <AlertDescription>{generation.errorMessage}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* 重要信息优先：质量评分 / 生成统计 / 生成规格在前，文件产物在后 */}
+      <div className="grid flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]">
         <div
-          className="animate-step-in flex flex-col gap-3"
+          className="animate-step-in top-[72px] flex flex-col gap-3 lg:sticky"
           style={{ '--enter-delay': '60ms' } as CSSProperties}
         >
-          {generationError && (
-            <Alert className="border-warning-border bg-warning-dim text-warning">
-              <AlertDescription>{generationError}</AlertDescription>
-            </Alert>
-          )}
-
-          <Card className="border-panel-border bg-panel p-5 shadow-md">
-            <Tabs defaultValue="files">
-              <TabsList className="mb-4 h-auto gap-1 rounded-full border border-panel-border bg-surface px-[3px] py-[3px]">
-                {[
-                  { value: 'files', label: '文件结构' },
-                  { value: 'skillmd', label: 'SKILL.md 预览' },
-                  { value: 'validation', label: '确定性校验' },
-                ].map((tab) => (
-                  <TabsTrigger
-                    key={tab.value}
-                    value={tab.value}
-                    className="flex-none rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-white/12 data-[state=active]:text-foreground"
-                  >
-                    {tab.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              <TabsContent value="files" className="animate-step-in">
-                {generation.files.length > 0
-                  ? <FileTree files={generation.files} />
-                  : <p className="py-8 text-center text-sm text-muted-foreground">暂无文件输出</p>}
-              </TabsContent>
-              <TabsContent value="skillmd" className="animate-step-in">
-                <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
-                  {generation.skillMd || '暂无预览'}
-                </pre>
-              </TabsContent>
-              <TabsContent value="validation" className="animate-step-in">
-                {generation.validation.length > 0
-                  ? <ValidationReport items={generation.validation} />
-                  : <p className="py-8 text-center text-sm text-muted-foreground">暂无校验结果</p>}
-              </TabsContent>
-            </Tabs>
-          </Card>
-
-          {generation.errorMessage && (
-            <Alert className="border-warning-border bg-warning-dim text-warning">
-              <AlertDescription>{generation.errorMessage}</AlertDescription>
-            </Alert>
-          )}
-        </div>
-
-        <div
-          className="animate-step-in top-[72px] flex flex-col gap-3 self-stretch lg:sticky"
-          style={{ '--enter-delay': '120ms' } as CSSProperties}
-        >
-          {/* 生成规格面板 */}
-          {(skillSpec || skillSpecError) && (
-            <SkillSpecPanel
-              response={skillSpec}
-              error={skillSpecError}
-              compact
-            />
-          )}
-
           {generation.qualityReport && <QualityScorePanel report={generation.qualityReport} />}
 
           <Card className="border-panel-border bg-panel p-4 shadow-md">
@@ -670,6 +687,64 @@ export default function CreatePage({
               </div>
             </div>
           </Card>
+        </div>
+
+        <div
+          className="animate-step-in flex flex-col gap-3"
+          style={{ '--enter-delay': '120ms' } as CSSProperties}
+        >
+          {/* 生成规格面板 */}
+          {(skillSpec || skillSpecError) && (
+            <SkillSpecPanel
+              response={skillSpec}
+              error={skillSpecError}
+            />
+          )}
+
+          {hasArtifacts ? (
+            <Card className="border-panel-border bg-panel p-5 shadow-md">
+              <Tabs defaultValue={generation.files.length > 0 ? 'files' : generation.skillMd ? 'skillmd' : 'validation'}>
+                <TabsList className="mb-4 h-auto gap-1 rounded-full border border-panel-border bg-surface px-[3px] py-[3px]">
+                  {[
+                    { value: 'files', label: '文件结构' },
+                    { value: 'skillmd', label: 'SKILL.md 预览' },
+                    { value: 'validation', label: '确定性校验' },
+                  ].map((tab) => (
+                    <TabsTrigger
+                      key={tab.value}
+                      value={tab.value}
+                      className="flex-none rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-white/12 data-[state=active]:text-foreground"
+                    >
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                <TabsContent value="files" className="animate-step-in">
+                  {generation.files.length > 0
+                    ? <FileTree files={generation.files} />
+                    : <p className="py-8 text-center text-sm text-muted-foreground">暂无文件输出</p>}
+                </TabsContent>
+                <TabsContent value="skillmd" className="animate-step-in">
+                  <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
+                    {generation.skillMd || '暂无预览'}
+                  </pre>
+                </TabsContent>
+                <TabsContent value="validation" className="animate-step-in">
+                  {generation.validation.length > 0
+                    ? <ValidationReport items={generation.validation} />
+                    : <p className="py-8 text-center text-sm text-muted-foreground">暂无校验结果</p>}
+                </TabsContent>
+              </Tabs>
+            </Card>
+          ) : (
+            !(skillSpec || skillSpecError) && (
+              <Card className="border-panel-border bg-panel p-5 shadow-md">
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  本次任务没有产出可预览的内容
+                </p>
+              </Card>
+            )
+          )}
         </div>
       </div>
     </div>

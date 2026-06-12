@@ -10,7 +10,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from app.adapter import PLATFORM_LABELS
+from app.adapter import DEFAULT_INSTALL_DIRS, PLATFORM_LABELS
 from app.agent import PydanticSkillAgents, SkillAgentRuntime
 from app.cli_contracts import CLI_COMMANDS
 from app.models import (
@@ -18,6 +18,8 @@ from app.models import (
     CliCommandSpec,
     GenerationResult,
     HistoryItem,
+    InstallRequest,
+    InstallResult,
     KnowledgeInfo,
     ModelConnectionProvider,
     ModelConnectionStatus,
@@ -44,6 +46,22 @@ from app.secret_store import SecretStore
 from app.settings import Settings
 from app.storage import Storage
 from app.utils import make_id, now_ms, sanitize_skill_name, sha256_file
+
+
+class InstallUnavailableError(Exception):
+    """The generation has no installable final package."""
+
+
+class InstallConflictError(Exception):
+    """The target directory already contains this skill."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(str(path))
+        self.path = path
+
+
+class DraftDeleteConflictError(Exception):
+    """The draft still has a generation in progress."""
 
 
 class SkillForgeService:
@@ -111,6 +129,25 @@ class SkillForgeService:
         merged["updatedAt"] = now_ms()
         updated = SkillDraft.model_validate(merged)
         return self.storage.save_draft(updated)
+
+    def delete_draft(self, draft_id: str) -> bool:
+        if self.storage.get_draft(draft_id) is None:
+            return False
+        terminal = {"succeeded", "degraded", "failed", "interrupted"}
+        generations = self.storage.list_generations_for_draft(draft_id)
+        if any(generation.status not in terminal for generation in generations):
+            raise DraftDeleteConflictError(
+                "该记录有正在进行的生成任务，请先取消后再删除。"
+            )
+        deleted_ids = self.storage.delete_draft_cascade(draft_id)
+        if deleted_ids is None:
+            return False
+        artifact_root = self.settings.artifact_root.resolve()
+        for generation_id in deleted_ids:
+            artifact_dir = (self.settings.artifact_root / generation_id).resolve()
+            if artifact_dir.is_relative_to(artifact_root) and artifact_dir.is_dir():
+                shutil.rmtree(artifact_dir, ignore_errors=True)
+        return True
 
     def generate(
         self,
@@ -346,6 +383,86 @@ class SkillForgeService:
         if not generation.artifactSha256 or sha256_file(path) != generation.artifactSha256:
             return None
         return path
+
+    def install_skill(
+        self,
+        generation_id: str,
+        payload: InstallRequest,
+    ) -> InstallResult | None:
+        generation = self.storage.get_generation(generation_id)
+        if generation is None:
+            return None
+        if generation.status not in {"succeeded", "degraded"} or not generation.artifactDir:
+            raise InstallUnavailableError("生成尚未产出可安装的最终包。")
+
+        package_root = (Path(generation.artifactDir) / "package").resolve()
+        artifact_root = self.settings.artifact_root.resolve()
+        if not package_root.is_relative_to(artifact_root) or not package_root.is_dir():
+            raise InstallUnavailableError("最终包目录不存在或不在产物目录内。")
+        skill_dirs = [
+            entry
+            for entry in package_root.iterdir()
+            if entry.is_dir() and (entry / "SKILL.md").is_file()
+        ]
+        if len(skill_dirs) != 1:
+            raise InstallUnavailableError("最终包内未找到唯一的 Skill 目录。")
+        source = skill_dirs[0]
+        skill_name = source.name
+
+        platform = payload.platform
+        if platform is None and payload.targetDir is None:
+            platforms = generation.targetPlatformsOverride
+            if not platforms:
+                draft = self.storage.get_draft(generation.draftId)
+                platforms = draft.targetPlatforms if draft else []
+            platform = next(
+                (target for target in platforms if target in DEFAULT_INSTALL_DIRS),
+                "claude-code",
+            )
+        if payload.targetDir:
+            target_base = Path(payload.targetDir).expanduser()
+        else:
+            target_base = Path(DEFAULT_INSTALL_DIRS[platform]).expanduser()
+        if not target_base.is_absolute():
+            raise InstallUnavailableError("安装目录必须是绝对路径。")
+        destination = (target_base / skill_name).resolve()
+        home = Path.home().resolve()
+        if destination in {home, Path("/")} or destination.is_relative_to(artifact_root):
+            raise InstallUnavailableError("安装目录不合法。")
+
+        overwrote = False
+        if destination.exists():
+            if not payload.overwrite:
+                raise InstallConflictError(destination)
+            if not destination.is_dir() or destination.name != skill_name:
+                raise InstallUnavailableError("目标位置已被非 Skill 内容占用，请手动处理。")
+            shutil.rmtree(destination)
+            overwrote = True
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, destination)
+        file_count = sum(1 for item in destination.rglob("*") if item.is_file())
+        installed_at = datetime.now(timezone.utc).isoformat()
+        self.storage.add_run_event(
+            generation_id,
+            "installed_locally",
+            {
+                "skillName": skill_name,
+                "installedPath": str(destination),
+                "platform": platform,
+                "overwrote": overwrote,
+                "fileCount": file_count,
+            },
+            now_ms(),
+        )
+        return InstallResult(
+            generationId=generation_id,
+            skillName=skill_name,
+            platform=platform,
+            installedPath=str(destination),
+            fileCount=file_count,
+            overwrote=overwrote,
+            installedAt=installed_at,
+        )
 
     def run_events(self, generation_id: str) -> list[dict[str, Any]] | None:
         if self.storage.get_generation(generation_id) is None:

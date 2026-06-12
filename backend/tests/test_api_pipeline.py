@@ -106,7 +106,10 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     assert draft["name"] == "product-research"
     assert draft["purpose"]["process"][0] == "明确产品领域、目标用户和关键研究问题"
     assert draft["knowledge"]["mandatoryRules"][0] == "不得把供应商自述直接当作第三方事实"
-    assert draft["supplement"] == {"content": "报告表达尽量简洁，可以补充一页管理层摘要。"}
+    assert draft["supplement"] == {
+        "content": "报告表达尽量简洁，可以补充一页管理层摘要。",
+        "outputSpecFiles": [],
+    }
     assert {
         "language",
         "skillType",
@@ -179,7 +182,7 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         assert len(versions["creatorSkillSha256"]) == 64
         assert (
             versions["generationPromptVersion"]
-            == "generation-v3.4-managed-trace"
+            == "generation-v3.5-output-spec"
         )
         assert versions["skillSpecSchemaVersion"] == "1.0"
         assert versions["skillSpecRevision"] == 1
@@ -187,6 +190,83 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         assert versions["agentSkillsValidatorVersion"] == "0.1.1"
         assert versions["rendererVersion"]
         assert versions["validationRuleSetVersion"]
+
+
+def test_install_copies_skill_into_target_dir(tmp_path: Path) -> None:
+    client = make_client(tmp_path / "data")
+    create_generation_provider(client)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
+    assert generation["status"] in {"succeeded", "degraded"}
+    target = tmp_path / "skills-home"
+
+    response = client.post(
+        f"/api/generations/{generation['id']}/install",
+        json={"targetDir": str(target)},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["skillName"] == "product-research"
+    assert result["installedPath"] == str((target / "product-research").resolve())
+    assert result["overwrote"] is False
+    assert (target / "product-research" / "SKILL.md").is_file()
+    assert (target / "product-research" / "references" / "domain-knowledge.md").is_file()
+    # Install guides and reports stay in the package; only the skill dir ships.
+    assert not (target / "install").exists()
+
+    conflict = client.post(
+        f"/api/generations/{generation['id']}/install",
+        json={"targetDir": str(target)},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "INSTALL_TARGET_EXISTS"
+
+    overwrite = client.post(
+        f"/api/generations/{generation['id']}/install",
+        json={"targetDir": str(target), "overwrite": True},
+    )
+    assert overwrite.status_code == 200
+    assert overwrite.json()["overwrote"] is True
+    assert (target / "product-research" / "SKILL.md").is_file()
+
+
+def test_install_rejects_relative_target_and_unknown_generation(tmp_path: Path) -> None:
+    client = make_client(tmp_path / "data")
+    create_generation_provider(client)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
+
+    relative = client.post(
+        f"/api/generations/{generation['id']}/install",
+        json={"targetDir": "relative/skills"},
+    )
+    assert relative.status_code == 409
+    assert relative.json()["detail"]["code"] == "INSTALL_UNAVAILABLE"
+
+    missing = client.post(
+        "/api/generations/gen_missing/install",
+        json={"targetDir": str(tmp_path / "skills-home")},
+    )
+    assert missing.status_code == 404
+
+
+def test_install_rejects_generation_without_final_package(tmp_path: Path) -> None:
+    client = make_client(tmp_path / "data")
+    create_generation_provider(client)
+    draft = client.post(
+        "/api/drafts",
+        json={"displayName": "Incomplete", "name": "incomplete"},
+    ).json()
+    generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
+    assert generation["status"] == "failed"
+
+    response = client.post(
+        f"/api/generations/{generation['id']}/install",
+        json={"targetDir": str(tmp_path / "skills-home")},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "INSTALL_UNAVAILABLE"
 
 
 def test_download_rejects_artifact_changed_after_packaging(tmp_path: Path) -> None:
@@ -488,3 +568,111 @@ def test_storage_migrates_legacy_draft_payload_to_new_shape(tmp_path: Path) -> N
         )
     assert "purpose" in stored_payload
     assert "trigger" not in stored_payload
+
+
+def test_delete_draft_removes_generations_and_artifacts(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    create_generation_provider(client)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
+    assert generation["status"] in {"succeeded", "degraded"}
+
+    service = client.app.state.service
+    artifact_dir = service.settings.artifact_root / generation["id"]
+    assert artifact_dir.is_dir()
+
+    response = client.delete(f"/api/drafts/{draft['id']}")
+    assert response.status_code == 204
+
+    assert client.get(f"/api/drafts/{draft['id']}").status_code == 404
+    assert client.get(f"/api/generations/{generation['id']}").status_code == 404
+    assert client.get("/api/history").json() == []
+    assert not artifact_dir.exists()
+    assert service.storage.list_attempts(generation["id"]) == []
+    assert service.storage.list_quality_reports(generation["id"]) == []
+    assert service.storage.list_run_events(generation["id"]) == []
+
+
+def test_delete_draft_unknown_id_returns_404(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    response = client.delete("/api/drafts/draft_missing")
+    assert response.status_code == 404
+
+
+def test_delete_draft_with_active_generation_returns_409(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    service = client.app.state.service
+    service.storage.create_generation_shell(
+        generation_id="run_active",
+        draft_id=draft["id"],
+        started_at=1,
+    )
+
+    response = client.delete(f"/api/drafts/{draft['id']}")
+    assert response.status_code == 409
+    assert client.get(f"/api/drafts/{draft['id']}").status_code == 200
+
+
+def test_draft_accepts_output_spec_files_and_flows_into_brief(tmp_path: Path) -> None:
+    from app.normalizer import normalize_draft
+
+    client = make_client(tmp_path)
+    payload = build_draft_payload()
+    payload["supplement"]["outputSpecFiles"] = [
+        {
+            "name": "weekly-report-template.md",
+            "size": 64,
+            "content": "# 周报\n\n## 本周工作\n\n## 下周计划\n",
+        }
+    ]
+
+    response = client.post("/api/drafts", json=payload)
+    assert response.status_code == 201
+    draft_payload = response.json()
+    assert draft_payload["supplement"]["outputSpecFiles"][0]["name"] == (
+        "weekly-report-template.md"
+    )
+
+    draft = client.app.state.service.get_draft(draft_payload["id"])
+    brief, _ = normalize_draft(draft)
+    assert brief.outputSpecFiles[0].name == "weekly-report-template.md"
+    assert "## 本周工作" in brief.outputSpecFiles[0].content
+    assert brief.needsAssets is True
+    assert brief.needsReferences is True
+
+
+def test_draft_rejects_invalid_output_spec_files(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    binary_payload = build_draft_payload()
+    binary_payload["supplement"]["outputSpecFiles"] = [
+        {"name": "report.exe", "size": 10, "content": "binary"}
+    ]
+    response = client.post("/api/drafts", json=binary_payload)
+    assert response.status_code == 422
+    assert "unsupported output spec file type" in response.json()["detail"]
+
+    oversized_payload = build_draft_payload()
+    oversized_payload["supplement"]["outputSpecFiles"] = [
+        {"name": "huge.md", "size": 70000, "content": "x" * 70000}
+    ]
+    response = client.post("/api/drafts", json=oversized_payload)
+    assert response.status_code == 422
+    assert "exceeds" in response.json()["detail"]
+
+    too_many_payload = build_draft_payload()
+    too_many_payload["supplement"]["outputSpecFiles"] = [
+        {"name": f"spec-{index}.md", "size": 2, "content": "ok"}
+        for index in range(4)
+    ]
+    response = client.post("/api/drafts", json=too_many_payload)
+    assert response.status_code == 422
+    assert "at most 3" in response.json()["detail"]
+
+    traversal_payload = build_draft_payload()
+    traversal_payload["supplement"]["outputSpecFiles"] = [
+        {"name": "../escape.md", "size": 2, "content": "ok"}
+    ]
+    response = client.post("/api/drafts", json=traversal_payload)
+    assert response.status_code == 422
