@@ -19,6 +19,10 @@ FreedomLevel = Literal["high", "medium", "low"]
 GenerationStage = Literal[
     "queued",
     "normalizing",
+    "generating-workflow",
+    "generating-knowledge",
+    "generating-quality",
+    "generating-trace",
     "injecting-rules",
     "splitting-workflow",
     "generating-ir",
@@ -224,6 +228,13 @@ class RestrictionSpec(BaseModel):
     source: SpecItemSource
 
 
+class SpecialCaseSpec(BaseModel):
+    id: str
+    statement: str
+    source: SpecItemSource = "user"
+    required: bool = True
+
+
 class FileContract(BaseModel):
     needsReferences: bool = False
     needsScripts: bool = False
@@ -250,6 +261,7 @@ class SkillSpec(BaseModel):
     workflowStages: list[WorkflowStageSpec] = Field(default_factory=list)
     completionCriteria: str = ""
     specialCases: str = ""
+    specialCaseItems: list[SpecialCaseSpec] = Field(default_factory=list)
     incrementalKnowledge: list[str] = Field(default_factory=list)
     pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
     hardRestrictions: list[str] = Field(default_factory=list)
@@ -542,6 +554,26 @@ class AgentCallMetadata(BaseModel):
     estimatedCostUsd: float | None = None
 
 
+GenerationStageKey = Literal["workflow", "knowledge", "quality", "trace"]
+GenerationStageAttemptStatus = Literal["succeeded", "failed"]
+
+
+class GenerationStageAttempt(BaseModel):
+    stage: GenerationStageKey
+    attempt: int = Field(ge=1, le=3)
+    status: GenerationStageAttemptStatus
+    errors: list[str] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
+    providerId: str | None = None
+    modelName: str | None = None
+    promptVersion: str = ""
+    inputTokens: int = 0
+    outputTokens: int = 0
+    durationMs: int = 0
+    startedAt: int
+    completedAt: int
+
+
 class SupplementAnswer(BaseModel):
     issueId: str
     answer: str | list[str]
@@ -625,6 +657,12 @@ class GenerationResult(BaseModel):
     skillSpecRevision: int | None = None
     skillSpecSha256: str | None = None
     skillSpecRevisions: list[SkillSpecRevision] = Field(default_factory=list)
+    stageAttempt: int = 0
+    stageMaxAttempts: int = 3
+    completedStages: list[GenerationStageKey] = Field(default_factory=list)
+    stageMessage: str = ""
+    cancelRequested: bool = False
+    stageAttempts: list[GenerationStageAttempt] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def set_run_id(self) -> "GenerationResult":

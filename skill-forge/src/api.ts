@@ -134,6 +134,13 @@ export function getGeneration(generationId: string) {
   );
 }
 
+export function cancelGeneration(generationId: string) {
+  return apiRequest<GenerationResult>(
+    `/api/generations/${encodeURIComponent(generationId)}/cancel`,
+    { method: 'POST' },
+  );
+}
+
 export function getGenerationQuality(generationId: string) {
   return apiRequest<QualityEvaluationReport>(
     `/api/generations/${encodeURIComponent(generationId)}/quality`,

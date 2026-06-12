@@ -1,7 +1,66 @@
-GENERATION_PROMPT_VERSION = "generation-v3.3-sdd"
-REPAIR_PROMPT_VERSION = "repair-v3.2-sdd"
+GENERATION_PROMPT_VERSION = "generation-v3.4-managed-trace"
+REPAIR_PROMPT_VERSION = "repair-v3.3-sdd"
 ACTIVATION_PROMPT_VERSION = "activation-judge-v2.1-sdd"
 IMPLEMENTATION_PROMPT_VERSION = "implementation-judge-v2-sdd"
+WORKFLOW_PROMPT_VERSION = "workflow-v1-staged"
+KNOWLEDGE_PROMPT_VERSION = "knowledge-v1-staged"
+QUALITY_PROMPT_VERSION = "quality-v1-staged"
+
+
+WORKFLOW_INSTRUCTIONS = """\
+You are SkillForge's workflow-stage generator. Return only the requested
+WorkflowGenerationResult.
+
+- SkillSpec is read-only and authoritative.
+- Write a precise activation description, overview, objective, executable
+  workflow steps, decisions, failure handling, verification, and Skill
+  handoffs.
+- Every required SkillSpec.workflowStages item must be implemented by a
+  distinct complete workflow step.
+- Each step must include purpose, action, input, output, validation, and
+  failureHandling.
+- Implement SkillSpec.specialCases in decisionPoints or failureHandling.
+- Keep all human-readable content in SkillBrief.outputLanguage.
+- Do not generate knowledge files, quality controls, or specTrace.
+- Retry feedback describes validation failures in the previous output. Fix
+  those failures without changing SkillSpec.
+"""
+
+
+KNOWLEDGE_INSTRUCTIONS = """\
+You are SkillForge's knowledge-and-files stage generator. Return only the
+requested KnowledgeGenerationResult.
+
+- SkillSpec is read-only and authoritative.
+- Build progressive context using contextEngineering and agentKnowledge.
+- Preserve every incremental knowledge item, pitfall, related Skill, and
+  supplemental context. You may expand them but must not contradict them.
+- Satisfy each required file contract with concrete file paths. Paths are
+  relative to the Skill directory and must name files, never bare folders.
+- Author complete referenceFiles content when creating authored references.
+- Use scripts only for stable repeatable automation and assets only for real
+  templates or materials.
+- Do not generate workflow fields, quality controls, or specTrace.
+- Retry feedback describes validation failures in the previous output. Fix
+  those failures without changing SkillSpec.
+"""
+
+
+QUALITY_INSTRUCTIONS = """\
+You are SkillForge's quality-controls stage generator. Return only the
+requested QualityGenerationResult.
+
+- SkillSpec is read-only and authoritative.
+- Produce freedomLevel, non-authoritative softGuidance, and a concrete
+  validationChecklist.
+- Copy every required SkillSpec.acceptanceCriteria statement verbatim into
+  validationChecklist.
+- Do not output hard restrictions; the application restores immutable
+  SkillSpec.hardRestrictions deterministically.
+- Do not generate workflow, knowledge files, or specTrace.
+- Retry feedback describes validation failures in the previous output. Fix
+  those failures without changing SkillSpec.
+"""
 
 
 GENERATION_INSTRUCTIONS = """\
@@ -14,24 +73,8 @@ Output rules:
 - Write every human-readable field in the language given by SkillBrief.outputLanguage.
 - Use schemaVersion 1.1.
 - Never change, reinterpret, or weaken the SkillSpec.
-- Add specTrace entries for every required identity field, activation contract,
-  workflow stage, special case, incremental knowledge item, user supplement,
-  pitfall, hard restriction, required file contract, related Skill, and
-  acceptance criterion. Every trace must name valid SkillIR paths and real
-  rendered package paths.
-- Each spec item type has a fixed home in the SkillIR, and its trace irPaths
-  must point there: identity.name -> skill.name; identity.platforms ->
-  platforms.targets; activation.usage -> skill.description;
-  activation.outcome -> workflow.objective; workflow stages ->
-  workflow.steps[i]; special cases -> workflow.decisionPoints or
-  workflow.failureHandling; incremental knowledge and user supplements ->
-  agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
-  hard restrictions -> quality.hardRestrictions[i]; file contracts ->
-  contextEngineering.references / referenceFiles / scripts / assets; related
-  skills -> agentKnowledge.relatedSkills[i]; acceptance criteria ->
-  quality.validationChecklist[i]. Never trace a spec item to any other IR
-  section, even when the same fact is also applied in workflow steps or
-  reference files.
+- Leave specTrace empty. The application builds all trace identifiers, IR
+  paths, and rendered paths deterministically after generation.
 - Keep every incremental knowledge and supplement statement verbatim as an
   agentKnowledge.unknownKnowledge entry, in addition to weaving it into steps
   or reference files.
@@ -99,7 +142,8 @@ Rules:
   trace bound to valid IR paths and real rendered package paths.
 - Trace each spec item to its fixed IR home (identity -> skill.* and
   platforms.targets; activation.outcome -> workflow.objective; workflow
-  stages -> workflow.steps[i]; incremental knowledge and supplements ->
+  stages -> workflow.steps[i]; special cases -> workflow.decisionPoints[i] or
+  workflow.failureHandling[i]; incremental knowledge and supplements ->
   agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
   hard restrictions -> quality.hardRestrictions[i]; file contracts ->
   contextEngineering.*; related skills -> agentKnowledge.relatedSkills[i];

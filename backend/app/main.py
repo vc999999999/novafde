@@ -142,6 +142,13 @@ def create_app(
             raise HTTPException(status_code=404, detail="Generation not found")
         return generation
 
+    @app.post("/api/generations/{generation_id}/cancel", response_model=GenerationResult)
+    def cancel_generation(generation_id: str) -> GenerationResult:
+        generation = service.cancel_generation(generation_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Generation not found")
+        return generation
+
     @app.get("/api/generations/{generation_id}/quality")
     def generation_quality(generation_id: str) -> dict[str, Any]:
         payload = service.quality_payload(generation_id)

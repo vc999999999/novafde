@@ -49,7 +49,7 @@ def build_test_agents() -> PydanticSkillAgents:
         },
         "contextEngineering": {
             "filesystemAssumptions": ["Load referenced files only when the current step needs them."],
-            "references": [],
+            "references": ["references/domain-knowledge.md"],
             "scripts": [],
             "assets": [],
         },
@@ -168,10 +168,38 @@ def build_test_agents() -> PydanticSkillAgents:
         "resolvedIssueIds": [],
         "unresolvedIssues": [],
     }
+    staged_outputs = [
+        {
+            "description": skill_ir["skill"]["description"],
+            "overview": "Create evidence-backed conclusions with traceable outputs.",
+            "objective": skill_ir["workflow"]["objective"],
+            "steps": skill_ir["workflow"]["steps"],
+            "decisionPoints": skill_ir["workflow"]["decisionPoints"],
+            "failureHandling": skill_ir["workflow"]["failureHandling"],
+            "verification": skill_ir["workflow"]["verification"],
+            "skillHandoffs": [],
+        },
+        {
+            "contextEngineering": skill_ir["contextEngineering"],
+            "agentKnowledge": skill_ir["agentKnowledge"],
+        },
+        {
+            "freedomLevel": skill_ir["quality"]["freedomLevel"],
+            "softGuidance": skill_ir["quality"]["softGuidance"],
+            "validationChecklist": [
+                "每个结论都有来源，无法验证的内容明确标记为假设",
+                "交付结果必须实现目标：把零散市场信息转成可验证的产品研究结论",
+            ],
+        },
+    ]
+    generation_call = 0
 
     def model_factory(_provider, role):
+        nonlocal generation_call
         if role == "generation":
-            return TestModel(custom_output_args=skill_ir)
+            output = staged_outputs[generation_call % len(staged_outputs)]
+            generation_call += 1
+            return TestModel(custom_output_args=output)
         if role == "repair":
             return TestModel(custom_output_args=repair)
         return TestModel(

@@ -88,6 +88,56 @@ def test_skill_spec_uses_stable_ids_for_optional_derived_acceptance() -> None:
     assert spec.sourceIssueIds == ["impl-completion"]
 
 
+def test_minimal_input_derives_workflow_acceptance_and_special_cases() -> None:
+    payload = build_draft_payload()
+    payload["purpose"]["process"] = []
+    payload["purpose"]["completionCriteria"] = ""
+    payload["purpose"]["specialCases"] = ""
+    payload["knowledge"] = {
+        "professionalInformation": [],
+        "mandatoryRules": [],
+        "pitfalls": [],
+        "relatedSkills": [],
+    }
+    payload["supplement"]["content"] = ""
+    brief, validation = normalize_draft(
+        SkillDraft.model_validate(
+            {
+                **payload,
+                "id": "draft_minimal",
+                "createdAt": 1,
+                "updatedAt": 1,
+            }
+        )
+    )
+
+    spec = build_skill_spec(brief, revision=1)
+
+    process_item = next(item for item in validation if item.ruleId == "PROCESS-001")
+    assert process_item.level == "warning"
+    assert len(spec.workflowStages) == 3
+    assert all(item.source == "derived" for item in spec.workflowStages)
+    assert spec.acceptanceCriteria[0].source == "derived"
+    assert len(spec.specialCaseItems) == 3
+    assert all(item.source == "derived" for item in spec.specialCaseItems)
+    assert spec.specialCases
+
+
+def test_user_optional_fields_override_derived_defaults() -> None:
+    brief, _ = normalize_draft(_draft())
+
+    spec = build_skill_spec(brief, revision=1)
+
+    assert [item.statement for item in spec.workflowStages] == brief.roughProcess
+    assert all(item.source == "user" for item in spec.workflowStages)
+    assert spec.acceptanceCriteria[0].statement == brief.completionCriteria
+    assert spec.acceptanceCriteria[0].source == "user"
+    assert [item.statement for item in spec.specialCaseItems] == [
+        brief.specialCases
+    ]
+    assert spec.specialCaseItems[0].source == "user"
+
+
 def test_skill_spec_supplements_become_required_trace_items() -> None:
     from app.models import SupplementSpecItem
     from app.spec_builder import required_spec_trace_items
@@ -145,9 +195,6 @@ def test_enforce_spec_contract_normalizes_rendered_paths() -> None:
 
     assert enforced.specTrace[0].renderedPaths == [
         "product-research/SKILL.md",
-        "product-research/references/domain-knowledge.md",
-        "product-research/SKILL.md",
-        "product-research/scripts/run.py",
     ]
 
 
@@ -239,6 +286,63 @@ def test_enforce_spec_contract_repairs_misplaced_ir_paths() -> None:
     index = enforced.agentKnowledge.unknownKnowledge.index(knowledge_statement)
     assert trace["knowledge.incremental.01"].irPaths == [
         f"agentKnowledge.unknownKnowledge[{index}]"
+    ]
+
+
+def test_enforce_spec_contract_repairs_special_case_and_acceptance_traces() -> None:
+    from app.agent import restore_authoritative_facts
+    from app.models import SkillIR
+    from app.spec_builder import enforce_spec_contract
+
+    brief, _ = normalize_draft(_draft())
+    spec = build_skill_spec(brief, revision=1)
+    ir = restore_authoritative_facts(
+        SkillIR.model_validate(
+            {
+                "skill": {
+                    "name": "product-research",
+                    "description": "Use when research is needed.",
+                    "language": "en",
+                },
+                "workflow": {
+                    "objective": brief.desiredOutcome,
+                    "steps": [],
+                    "decisionPoints": [],
+                    "failureHandling": [],
+                },
+                "quality": {
+                    "hardRestrictions": list(spec.hardRestrictions),
+                    "validationChecklist": ["Review the output before delivery."],
+                },
+                "platforms": {"targets": ["claude-code"]},
+                "specTrace": [
+                    {
+                        "specItemId": "acceptance.01",
+                        "irPaths": ["quality.validationChecklist[0]"],
+                        "renderedPaths": ["product-research/SKILL.md"],
+                    }
+                ],
+            }
+        ),
+        brief,
+        spec,
+    )
+
+    enforced = enforce_spec_contract(ir, spec)
+
+    trace = {item.specItemId: item for item in enforced.specTrace}
+    special_case_index = enforced.workflow.decisionPoints.index(spec.specialCases)
+    acceptance_index = enforced.quality.validationChecklist.index(
+        spec.acceptanceCriteria[0].statement
+    )
+    assert trace["special-cases.01"].irPaths == [
+        f"workflow.decisionPoints[{special_case_index}]"
+    ]
+    assert trace["special-cases.01"].renderedPaths == [
+        "product-research/SKILL.md"
+    ]
+    assert trace["acceptance.01"].irPaths == [
+        f"quality.validationChecklist[{acceptance_index}]"
     ]
 
 

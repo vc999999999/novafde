@@ -1,22 +1,52 @@
-import type { SkillDraft } from '../types';
+import type { GenerationStage, SkillDraft } from '../types';
 
 let idCounter = 100;
 const uid = () => `draft_${Date.now()}_${++idCounter}`;
 
-export const STAGES = [
-  { key: 'queued' as const, label: '准备任务', sub: '创建本地生成记录' },
-  { key: 'normalizing' as const, label: '整理输入', sub: '归一化表单与补充信息' },
-  { key: 'injecting-rules' as const, label: '注入规则', sub: '将质量规则注入生成上下文' },
-  { key: 'splitting-workflow' as const, label: '拆分工作流', sub: '将复杂流程拆分为可执行步骤' },
-  { key: 'generating-ir' as const, label: '生成 Skill IR', sub: 'PydanticAI 生成结构化候选' },
-  { key: 'running-validation-checks' as const, label: '结构校验', sub: '检查规范、路径与强制规则' },
-  { key: 'evaluating-activation' as const, label: '触发评测', sub: '评估描述的触发准确性' },
-  { key: 'evaluating-implementation' as const, label: '实现评测', sub: '评估工作流可执行性' },
-  { key: 'aggregating-scores' as const, label: '汇总评分', sub: '计算质量门禁与修复方向' },
-  { key: 'quality-gate' as const, label: '质量门禁', sub: '检查是否通过质量门禁' },
-  { key: 'repairing' as const, label: '定向优化', sub: '仅修复未通过的内容' },
-  { key: 'selecting-best-candidate' as const, label: '选择版本', sub: '选择历史最高分安全候选' },
-  { key: 'packaging' as const, label: '打包文件', sub: '生成可下载 zip' },
+interface ProductStage {
+  key: 'requirements' | 'workflow' | 'quality' | 'package';
+  stages: GenerationStage[];
+  label: string;
+  sub: string;
+}
+
+export const STAGES: ProductStage[] = [
+  {
+    key: 'requirements',
+    stages: ['queued', 'normalizing', 'injecting-rules'],
+    label: '理解需求',
+    sub: '整理必要输入并补全标准规格',
+  },
+  {
+    key: 'workflow',
+    stages: ['generating-workflow', 'splitting-workflow', 'generating-ir', 'validating-schema'],
+    label: '构建工作流',
+    sub: '设计步骤、输入输出、校验和失败处理',
+  },
+  {
+    key: 'quality',
+    stages: ['generating-knowledge', 'generating-quality'],
+    label: '补全知识与质量',
+    sub: '补充专业知识、约束和验收标准',
+  },
+  {
+    key: 'package',
+    stages: [
+      'generating-trace',
+      'rendering-files',
+      'running-validation-checks',
+      'evaluating-activation',
+      'evaluating-implementation',
+      'aggregating-scores',
+      'repairing',
+      'awaiting-user-input',
+      'selecting-best-candidate',
+      'quality-gate',
+      'packaging',
+    ],
+    label: '检查与打包',
+    sub: '持续评测优化，选择最佳版本并生成文件',
+  },
 ];
 
 export function createBlankDraft(): SkillDraft {
@@ -77,9 +107,8 @@ export const STEP_COMPLETION_WEIGHTS: Record<StepKey, (draft: SkillDraft) => num
   },
   purpose: (draft) => {
     let score = 0;
-    if (draft.purpose.usage.trim()) score += 30;
-    if (draft.purpose.desiredOutcome.trim()) score += 30;
-    if (draft.purpose.process.some((item) => item.trim())) score += 40;
+    if (draft.purpose.usage.trim()) score += 50;
+    if (draft.purpose.desiredOutcome.trim()) score += 50;
     return score;
   },
   // 知识步骤全部为可选推荐项，不计入必填完成度。

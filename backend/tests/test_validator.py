@@ -260,3 +260,22 @@ def test_spec_trace_issues_bind_only_failing_spec_item_ids(tmp_path: Path) -> No
     assert coverage.specItemIds == [removed.specItemId]
     invalid = next(item for item in items if item.ruleId == "SPEC-TRACE-002")
     assert invalid.specItemIds == [corrupted.specItemId]
+
+
+def test_enforce_spec_contract_rebuilds_all_trace_metadata(tmp_path: Path) -> None:
+    from app.spec_builder import enforce_spec_contract
+    from tests.test_quality_orchestrator import valid_ir
+
+    brief, spec = _brief_and_spec()
+    ir = valid_ir()
+    ir.specTrace = []
+
+    enforced = enforce_spec_contract(ir, spec)
+    render_skill_package(enforced, tmp_path)
+    items = validate_spec_compliance(tmp_path, enforced, spec)
+
+    assert not any(
+        item.ruleId in {"SPEC-TRACE-001", "SPEC-TRACE-002"}
+        and item.level == "blocking"
+        for item in items
+    )

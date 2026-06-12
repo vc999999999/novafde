@@ -119,13 +119,13 @@ def validate_brief(brief: SkillBrief) -> list[ValidationItem]:
     _check_field(
         items,
         present=bool(brief.roughProcess),
-        required=True,
+        required=False,
         item_id="brief-process",
         rule_id="PROCESS-001",
         subject="大致执行流程",
-        description="生成前至少需要一条用户认可的大致执行流程。",
-        importance="Skill Creator 会以此为业务事实，扩展为完整的 Agent 工作流。",
-        suggestion="按顺序写出主要阶段，不需要填写逐步输入、输出或失败处理。",
+        description="未提供大致执行流程，系统会根据使用场景和目标结果推导标准工作流。",
+        importance="用户流程会提升业务贴合度；留空时系统仅生成安全的通用执行阶段。",
+        suggestion="如有明确业务步骤，可按顺序补充主要阶段。",
         field="purpose.process",
     )
     _check_field(

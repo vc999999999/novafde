@@ -177,7 +177,10 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         versions = manifest["versions"]
         assert versions["creatorSkillVersion"] == "1.1.0"
         assert len(versions["creatorSkillSha256"]) == 64
-        assert versions["generationPromptVersion"] == "generation-v3.3-sdd"
+        assert (
+            versions["generationPromptVersion"]
+            == "generation-v3.4-managed-trace"
+        )
         assert versions["skillSpecSchemaVersion"] == "1.0"
         assert versions["skillSpecRevision"] == 1
         assert versions["skillSpecSha256"] == generation["skillSpecSha256"]
@@ -199,6 +202,48 @@ def test_download_rejects_artifact_changed_after_packaging(tmp_path: Path) -> No
     assert response.status_code == 404
 
 
+def test_cancel_queued_generation_interrupts_immediately(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    service = client.app.state.service
+    generation = service.storage.create_generation_shell(
+        generation_id="gen_cancel_queued",
+        draft_id=draft["id"],
+        started_at=1,
+    )
+
+    response = client.post(f"/api/generations/{generation.id}/cancel")
+
+    assert response.status_code == 200
+    cancelled = response.json()
+    assert cancelled["status"] == "interrupted"
+    assert cancelled["cancelRequested"] is True
+    assert cancelled["failureCode"] == "USER_CANCELLED"
+    assert cancelled["downloadInfo"] is None
+
+
+def test_cancel_active_generation_sets_persisted_request(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    service = client.app.state.service
+    generation = service.storage.create_generation_shell(
+        generation_id="gen_cancel_active",
+        draft_id=draft["id"],
+        started_at=1,
+    )
+    generation.status = "generating_initial_ir"
+    generation.currentStage = "generating-workflow"
+    service.storage.save_generation(generation)
+
+    response = client.post(f"/api/generations/{generation.id}/cancel")
+
+    assert response.status_code == 200
+    cancelling = response.json()
+    assert cancelling["status"] == "generating_initial_ir"
+    assert cancelling["cancelRequested"] is True
+    assert cancelling["stageMessage"] == "正在等待当前模型调用结束后停止"
+
+
 def test_generate_returns_blocking_validation_for_incomplete_draft(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     create_generation_provider(client)
@@ -216,7 +261,7 @@ def test_generate_returns_blocking_validation_for_incomplete_draft(tmp_path: Pat
     assert generation_response.status_code == 201
     generation = generation_response.json()
     assert generation["status"] == "failed"
-    assert generation["blockingIssues"] >= 2
+    assert generation["blockingIssues"] >= 1
     assert generation["downloadInfo"] is None
     assert generation["errorMessage"] == "生成输入存在阻塞问题，请补充草稿后重试。"
 
@@ -224,7 +269,11 @@ def test_generate_returns_blocking_validation_for_incomplete_draft(tmp_path: Pat
     assert {"PURPOSE-001", "PROCESS-001"}.issubset(issue_rule_ids)
     issue_layers = {item["field"]: item["inputLayer"] for item in generation["validation"] if item["level"] == "blocking"}
     assert issue_layers["purpose.usage"] == "required"
-    assert issue_layers["purpose.process"] == "required"
+    process_item = next(
+        item for item in generation["validation"] if item["ruleId"] == "PROCESS-001"
+    )
+    assert process_item["level"] == "warning"
+    assert process_item["inputLayer"] == "advanced"
 
 
 def test_generate_blocks_missing_skill_display_name(tmp_path: Path) -> None:
@@ -297,6 +346,32 @@ def test_generate_proceeds_without_optional_knowledge_fields(tmp_path: Path) -> 
     assert generation["status"] in {"succeeded", "degraded"}
     assert generation["blockingIssues"] == 0
     assert generation["downloadInfo"] is not None
+
+
+def test_generate_from_minimal_required_input(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    create_generation_provider(client)
+    payload = build_draft_payload()
+    payload["purpose"]["process"] = []
+    payload["purpose"]["completionCriteria"] = ""
+    payload["purpose"]["specialCases"] = ""
+    payload["knowledge"] = {
+        "professionalInformation": [],
+        "mandatoryRules": [],
+        "pitfalls": [],
+        "relatedSkills": [],
+    }
+    payload["supplement"]["content"] = ""
+
+    draft = client.post("/api/drafts", json=payload).json()
+    generation = client.post(f"/api/drafts/{draft['id']}/generate").json()
+
+    assert generation["status"] in {"succeeded", "degraded"}
+    assert generation["blockingIssues"] == 0
+    assert generation["downloadInfo"] is not None
+    spec = client.get(f"/api/generations/{generation['id']}/spec").json()["current"]
+    assert len(spec["workflowStages"]) == 3
+    assert len(spec["specialCaseItems"]) == 3
 
 
 def test_supplement_is_low_priority_and_cannot_override_mandatory_rules(tmp_path: Path) -> None:
