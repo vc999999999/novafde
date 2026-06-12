@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { GenerationStage } from '../types';
+import type { GenerationStage, GenerationStageKey } from '../types';
 import { STAGES } from '../data';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -7,11 +7,17 @@ import { cn } from '@/lib/utils';
 interface Props {
   currentStage: GenerationStage | null;
   progress: number;
+  completedStages?: GenerationStageKey[];
   isFailed?: boolean;
 }
 
-export default function PipelineProgress({ currentStage, progress, isFailed }: Props) {
-  const stageIdx = currentStage ? STAGES.findIndex((s) => s.key === currentStage) : -1;
+export default function PipelineProgress({
+  currentStage,
+  progress,
+  completedStages = [],
+  isFailed,
+}: Props) {
+  const stageIdx = currentStage ? STAGES.findIndex((item) => item.stage === currentStage) : -1;
 
   return (
     <div>
@@ -30,7 +36,7 @@ export default function PipelineProgress({ currentStage, progress, isFailed }: P
       />
       <div className="flex flex-col">
         {STAGES.map((stage, i) => {
-          const isCompleted = i < stageIdx || progress >= 100;
+          const isCompleted = completedStages.includes(stage.key) || progress >= 100;
           const isActive = i === stageIdx && !isFailed;
           const isFailedStage = isFailed && i === stageIdx;
 

@@ -4,19 +4,10 @@ let idCounter = 100;
 const uid = () => `draft_${Date.now()}_${++idCounter}`;
 
 export const STAGES = [
-  { key: 'queued' as const, label: '准备任务', sub: '创建本地生成记录' },
-  { key: 'normalizing' as const, label: '整理输入', sub: '归一化表单与补充信息' },
-  { key: 'injecting-rules' as const, label: '注入规则', sub: '将质量规则注入生成上下文' },
-  { key: 'splitting-workflow' as const, label: '拆分工作流', sub: '将复杂流程拆分为可执行步骤' },
-  { key: 'generating-ir' as const, label: '生成 Skill IR', sub: 'PydanticAI 生成结构化候选' },
-  { key: 'running-validation-checks' as const, label: '结构校验', sub: '检查规范、路径与强制规则' },
-  { key: 'evaluating-activation' as const, label: '触发评测', sub: '评估描述的触发准确性' },
-  { key: 'evaluating-implementation' as const, label: '实现评测', sub: '评估工作流可执行性' },
-  { key: 'aggregating-scores' as const, label: '汇总评分', sub: '计算质量门禁与修复方向' },
-  { key: 'quality-gate' as const, label: '质量门禁', sub: '检查是否通过质量门禁' },
-  { key: 'repairing' as const, label: '定向优化', sub: '仅修复未通过的内容' },
-  { key: 'selecting-best-candidate' as const, label: '选择版本', sub: '选择历史最高分安全候选' },
-  { key: 'packaging' as const, label: '打包文件', sub: '生成可下载 zip' },
+  { key: 'workflow' as const, stage: 'generating-workflow' as const, label: '工作流骨架', sub: '步骤、输入输出、验证与失败处理' },
+  { key: 'knowledge' as const, stage: 'generating-knowledge' as const, label: '知识与文件', sub: '专业知识、引用材料与依赖文件' },
+  { key: 'quality' as const, stage: 'generating-quality' as const, label: '质量约束', sub: '硬限制、验收标准与检查清单' },
+  { key: 'trace' as const, stage: 'generating-trace' as const, label: '规格映射', sub: '逐项建立 SkillSpec 到输出的证据链' },
 ];
 
 export function createBlankDraft(): SkillDraft {

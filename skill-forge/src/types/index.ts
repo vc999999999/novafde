@@ -3,6 +3,10 @@ export type TargetPlatform = 'claude-code' | 'codex' | 'hermes-openclaw';
 export type GenerationStage =
   | 'queued'
   | 'normalizing'
+  | 'generating-workflow'
+  | 'generating-knowledge'
+  | 'generating-quality'
+  | 'generating-trace'
   | 'injecting-rules'
   | 'splitting-workflow'
   | 'generating-ir'
@@ -17,6 +21,24 @@ export type GenerationStage =
   | 'selecting-best-candidate'
   | 'quality-gate'
   | 'packaging';
+
+export type GenerationStageKey = 'workflow' | 'knowledge' | 'quality' | 'trace';
+
+export interface GenerationStageAttempt {
+  stage: GenerationStageKey;
+  attempt: number;
+  status: 'succeeded' | 'failed';
+  errors: string[];
+  result: Record<string, unknown>;
+  providerId: string | null;
+  modelName: string | null;
+  promptVersion: string;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  startedAt: number;
+  completedAt: number;
+}
 
 export type GenerationStatus =
   | 'queued'
@@ -181,6 +203,12 @@ export interface GenerationResult {
   skillSpecAvailable: boolean;
   skillSpecRevision: number | null;
   skillSpecSha256: string | null;
+  stageAttempt: number;
+  stageMaxAttempts: number;
+  completedStages: GenerationStageKey[];
+  stageMessage: string;
+  cancelRequested: boolean;
+  stageAttempts: GenerationStageAttempt[];
 }
 
 export interface FileNode {

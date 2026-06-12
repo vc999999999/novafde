@@ -13,6 +13,7 @@ import QualityScorePanel from '../components/QualityScorePanel';
 import SupplementDialog from '../components/SupplementDialog';
 import SkillSpecPanel from '../components/SkillSpecPanel';
 import {
+  cancelGeneration,
   createDraft,
   patchDraft,
   getGeneration,
@@ -78,6 +79,7 @@ export default function CreatePage({
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [autosavedDraftId, setAutosavedDraftId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [isSubmittingSupplement, setIsSubmittingSupplement] = useState(false);
   const [pollingEnabled, setPollingEnabled] = useState(
     Boolean(resumeGenerationId),
@@ -222,6 +224,7 @@ export default function CreatePage({
     setSkillSpecError(null);
     setGenerationError(null);
     setIsGenerating(true);
+    setIsCancelling(false);
 
     try {
       const savedDraft = await createDraft(draft);
@@ -254,10 +257,31 @@ export default function CreatePage({
     }
   }, [generationId]);
 
+  const handleCancelGeneration = useCallback(async () => {
+    if (!generationId || isCancelling) return;
+    setIsCancelling(true);
+    setGenerationError(null);
+    try {
+      const current = await cancelGeneration(generationId);
+      setGeneration(current);
+      if (TERMINAL_STATUSES.has(current.status)) {
+        setPollingEnabled(false);
+        setPhase('result');
+      } else {
+        setPollingEnabled(true);
+      }
+    } catch (error) {
+      setGenerationError(messageFromError(error));
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [generationId, isCancelling]);
+
   const handleBackToForm = useCallback(() => {
     setPollingEnabled(false);
     setPhase('form');
     setGenerationError(null);
+    setIsCancelling(false);
   }, []);
 
   const handleNewDraft = useCallback(() => {
@@ -408,24 +432,40 @@ export default function CreatePage({
     const report = generation?.qualityReport;
     const isAwaitingInput = generation?.status === 'awaiting_user_input';
     return (
-      <>
-        {!isAwaitingInput && (
-          <GenerationLoading
-            stage={generation?.currentStage ?? 'queued'}
-            progress={generation?.progress ?? 0}
-            currentRound={generation?.currentRound ?? 0}
-            maxRepairRounds={generation?.maxRepairRounds ?? 3}
-            isFailed={generation?.status === 'failed'}
-          />
-        )}
-        {(skillSpec || skillSpecError) && (
-          <SkillSpecPanel
-            response={skillSpec}
-            error={skillSpecError}
-            compact
-            className="fixed bottom-5 right-5 z-50 w-[min(380px,calc(100%-2rem))]"
-          />
-        )}
+      <div className="flex flex-1 flex-col">
+        <PageHeader
+          title="正在生成 Skill"
+          sub={generation?.stageMessage || '质量优先模式会持续检查并修复输出'}
+        />
+        <div className={cn(
+          'mx-auto grid w-full max-w-[1180px] items-start gap-5',
+          (skillSpec || skillSpecError) && 'lg:grid-cols-[minmax(0,1fr)_340px]',
+        )}>
+          {!isAwaitingInput && (
+            <GenerationLoading
+              stage={generation?.currentStage ?? 'queued'}
+              progress={generation?.progress ?? 0}
+              currentRound={generation?.currentRound ?? 0}
+              maxRepairRounds={generation?.maxRepairRounds ?? 3}
+              stageAttempt={generation?.stageAttempt ?? 0}
+              stageMaxAttempts={generation?.stageMaxAttempts ?? 3}
+              completedStages={generation?.completedStages ?? []}
+              stageMessage={generation?.stageMessage ?? ''}
+              cancelRequested={generation?.cancelRequested ?? false}
+              isCancelling={isCancelling}
+              onCancel={() => void handleCancelGeneration()}
+              isFailed={generation?.status === 'failed'}
+            />
+          )}
+          {(skillSpec || skillSpecError) && (
+            <SkillSpecPanel
+              response={skillSpec}
+              error={skillSpecError}
+              compact
+              className="w-full lg:sticky lg:top-[84px]"
+            />
+          )}
+        </div>
         {isAwaitingInput && generation.userQuestions.length > 0 && (
           <SupplementDialog
             key={generation.userQuestions.map((question) => question.issueId).join(':')}
@@ -441,11 +481,11 @@ export default function CreatePage({
           />
         )}
         {generationError && (
-          <Alert className="fixed bottom-5 left-1/2 z-[60] w-[min(680px,calc(100%-2rem))] -translate-x-1/2 border-warning-border bg-panel text-warning shadow-2xl">
+          <Alert className="mx-auto mt-4 w-full max-w-[680px] border-warning-border bg-panel text-warning shadow-md">
             <AlertDescription>{generationError}</AlertDescription>
           </Alert>
         )}
-      </>
+      </div>
     );
   }
 

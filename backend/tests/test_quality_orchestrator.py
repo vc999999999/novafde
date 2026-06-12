@@ -488,6 +488,20 @@ def test_orchestrator_packages_first_strict_candidate(tmp_path: Path) -> None:
     assert agents.repair_calls == 0
 
 
+def test_generation_progress_never_moves_backwards(tmp_path: Path) -> None:
+    agents = ScriptedAgents(activation_scores=[4], implementation_scores=[4])
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+
+    progress_values = [
+        event["payload"]["progress"]
+        for event in storage.list_run_events(run_id)
+        if event["event"] == "state_transition"
+    ]
+    assert progress_values == sorted(progress_values)
+
+
 def test_orchestrator_runs_at_most_three_repairs_and_selects_best_candidate(tmp_path: Path) -> None:
     agents = ScriptedAgents(
         activation_scores=[3, 2, 3, 2],

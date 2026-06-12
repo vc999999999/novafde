@@ -96,6 +96,34 @@ STAGED_GENERATION_PROMPT_VERSION = (
     f"{QUALITY_PROMPT_VERSION}+{SEMANTIC_TRACE_PROMPT_VERSION}"
 )
 
+_INITIAL_CANDIDATE_PROGRESS = {
+    "render": 62,
+    "validation": 66,
+    "activation": 70,
+    "implementation": 73,
+    "aggregate": 76,
+}
+_REPAIR_CANDIDATE_OFFSETS = {
+    "render": 1,
+    "validation": 2,
+    "activation": 3,
+    "implementation": 4,
+    "aggregate": 5,
+}
+
+
+def _repair_progress(round_number: int) -> int:
+    return min(78 + max(0, round_number - 1) * 4, 87)
+
+
+def _candidate_progress(round_number: int, phase: str) -> int:
+    if round_number <= 0:
+        return _INITIAL_CANDIDATE_PROGRESS[phase]
+    return min(
+        _repair_progress(round_number) + _REPAIR_CANDIDATE_OFFSETS[phase],
+        87,
+    )
+
 
 class QualityOrchestrator:
     def __init__(
@@ -327,7 +355,7 @@ class QualityOrchestrator:
             generation,
             f"repairing_round_{next_round}",
             "repairing",
-            55 + next_round * 8,
+            _repair_progress(next_round),
             current_round=next_round,
             provider=repair_provider,
         )
@@ -498,7 +526,7 @@ class QualityOrchestrator:
                 generation,
                 f"repairing_round_{next_round}",
                 "repairing",
-                55 + next_round * 8,
+                _repair_progress(next_round),
                 current_round=next_round,
                 provider=repair_provider,
             )
@@ -564,7 +592,7 @@ class QualityOrchestrator:
             generation,
             "rendering_candidate",
             "rendering-files",
-            30 + round_number * 8,
+            _candidate_progress(round_number, "render"),
             current_round=round_number,
         )
         try:
@@ -600,7 +628,7 @@ class QualityOrchestrator:
             generation,
             "running_validation_checks",
             "running-validation-checks",
-            40 + round_number * 8,
+            _candidate_progress(round_number, "validation"),
         )
         validation_items, validation_issues, validation_score = evaluate_validation(
             package_root,
@@ -677,7 +705,7 @@ class QualityOrchestrator:
                     generation,
                     "evaluating_activation",
                     "evaluating-activation",
-                    48 + round_number * 8,
+                    _candidate_progress(round_number, "activation"),
                 )
                 with ThreadPoolExecutor(
                     max_workers=2,
@@ -725,7 +753,7 @@ class QualityOrchestrator:
                     generation,
                     "evaluating_implementation",
                     "evaluating-implementation",
-                    52 + round_number * 8,
+                    _candidate_progress(round_number, "implementation"),
                 )
                 attempt.agentCalls.append(implementation_metadata)
                 self._record_provider_selection(generation, implementation_provider)
@@ -734,7 +762,7 @@ class QualityOrchestrator:
                     generation,
                     "evaluating_activation",
                     "evaluating-activation",
-                    48 + round_number * 8,
+                    _candidate_progress(round_number, "activation"),
                 )
                 (
                     (activation, activation_metadata),
@@ -754,14 +782,14 @@ class QualityOrchestrator:
                     generation,
                     "evaluating_implementation",
                     "evaluating-implementation",
-                    52 + round_number * 8,
+                    _candidate_progress(round_number, "implementation"),
                 )
             elif needs_implementation:
                 self._transition(
                     generation,
                     "evaluating_implementation",
                     "evaluating-implementation",
-                    52 + round_number * 8,
+                    _candidate_progress(round_number, "implementation"),
                 )
                 (
                     (implementation, implementation_metadata),
@@ -786,7 +814,7 @@ class QualityOrchestrator:
             generation,
             "aggregating_scores",
             "aggregating-scores",
-            56 + round_number * 8,
+            _candidate_progress(round_number, "aggregate"),
         )
         report = aggregate_quality_report(
             attempt_id=attempt.id,
@@ -1431,7 +1459,7 @@ class QualityOrchestrator:
         assert_generation_transition(generation.status, status)
         generation.status = status  # type: ignore[assignment]
         generation.currentStage = stage  # type: ignore[assignment]
-        generation.progress = min(progress, 99)
+        generation.progress = min(max(generation.progress, progress), 99)
         if current_round is not None:
             generation.currentRound = current_round
         if provider is not None:
