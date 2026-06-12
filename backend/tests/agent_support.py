@@ -49,7 +49,7 @@ def build_test_agents() -> PydanticSkillAgents:
         },
         "contextEngineering": {
             "filesystemAssumptions": ["Load referenced files only when the current step needs them."],
-            "references": [],
+            "references": ["references/domain-knowledge.md"],
             "scripts": [],
             "assets": [],
         },
@@ -187,7 +187,8 @@ def build_test_agents() -> PydanticSkillAgents:
             "freedomLevel": skill_ir["quality"]["freedomLevel"],
             "softGuidance": skill_ir["quality"]["softGuidance"],
             "validationChecklist": [
-                "每个结论都有来源，无法验证的内容明确标记为假设"
+                "每个结论都有来源，无法验证的内容明确标记为假设",
+                "交付结果必须实现目标：把零散市场信息转成可验证的产品研究结论",
             ],
         },
         {

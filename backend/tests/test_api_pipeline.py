@@ -199,6 +199,48 @@ def test_download_rejects_artifact_changed_after_packaging(tmp_path: Path) -> No
     assert response.status_code == 404
 
 
+def test_cancel_queued_generation_interrupts_immediately(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    service = client.app.state.service
+    generation = service.storage.create_generation_shell(
+        generation_id="gen_cancel_queued",
+        draft_id=draft["id"],
+        started_at=1,
+    )
+
+    response = client.post(f"/api/generations/{generation.id}/cancel")
+
+    assert response.status_code == 200
+    cancelled = response.json()
+    assert cancelled["status"] == "interrupted"
+    assert cancelled["cancelRequested"] is True
+    assert cancelled["failureCode"] == "USER_CANCELLED"
+    assert cancelled["downloadInfo"] is None
+
+
+def test_cancel_active_generation_sets_persisted_request(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    draft = client.post("/api/drafts", json=build_draft_payload()).json()
+    service = client.app.state.service
+    generation = service.storage.create_generation_shell(
+        generation_id="gen_cancel_active",
+        draft_id=draft["id"],
+        started_at=1,
+    )
+    generation.status = "generating_initial_ir"
+    generation.currentStage = "generating-workflow"
+    service.storage.save_generation(generation)
+
+    response = client.post(f"/api/generations/{generation.id}/cancel")
+
+    assert response.status_code == 200
+    cancelling = response.json()
+    assert cancelling["status"] == "generating_initial_ir"
+    assert cancelling["cancelRequested"] is True
+    assert cancelling["stageMessage"] == "正在等待当前模型调用结束后停止"
+
+
 def test_generate_returns_blocking_validation_for_incomplete_draft(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     create_generation_provider(client)

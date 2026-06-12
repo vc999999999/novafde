@@ -286,6 +286,38 @@ class SkillForgeService:
     def get_generation(self, generation_id: str) -> GenerationResult | None:
         return self.storage.get_generation(generation_id)
 
+    def cancel_generation(self, generation_id: str) -> GenerationResult | None:
+        generation = self.storage.get_generation(generation_id)
+        if generation is None:
+            return None
+        if generation.status in {"succeeded", "degraded", "failed", "interrupted"}:
+            return generation
+
+        timestamp = now_ms()
+        generation.cancelRequested = True
+        if generation.status in {"queued", "normalizing", "awaiting_user_input"}:
+            generation.status = "interrupted"
+            generation.currentStage = None
+            generation.completedAt = timestamp
+            generation.failureCode = "USER_CANCELLED"
+            generation.errorMessage = "用户已停止生成。"
+            generation.stageMessage = "生成已停止"
+            event = "cancelled"
+        else:
+            generation.stageMessage = "正在等待当前模型调用结束后停止"
+            event = "cancel_requested"
+
+        self.storage.add_run_event(
+            generation.id,
+            event,
+            {
+                "stage": generation.currentStage,
+                "attempt": generation.stageAttempt,
+            },
+            timestamp,
+        )
+        return self.storage.save_generation(generation)
+
     def preview(self, generation_id: str) -> PreviewResponse | None:
         generation = self.storage.get_generation(generation_id)
         if generation is None:
