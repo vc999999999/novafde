@@ -1,9 +1,8 @@
-from pathlib import Path
-
 import pytest
 from pydantic_ai.models.test import TestModel
 
 from app.agent import PydanticSkillAgents
+from app.creator_skill import load_creator_skill
 from app.models import (
     JudgeEvaluation,
     KnowledgePitfall,
@@ -13,6 +12,7 @@ from app.models import (
     SkillIR,
 )
 from app.provider_runtime import PydanticAgentRuntime
+from app.spec_builder import build_skill_spec
 
 
 def build_brief() -> SkillBrief:
@@ -113,8 +113,9 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     )
     agents = PydanticSkillAgents(runtime)
     brief = build_brief()
+    spec = build_skill_spec(brief, revision=1)
 
-    ir, metadata = agents.generate(brief, build_provider())
+    ir, metadata = agents.generate(brief, spec, build_provider())
 
     assert isinstance(ir, SkillIR)
     assert ir.skill.name == brief.skillName
@@ -122,10 +123,10 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     # Model-authored objective is preserved; dropped user facts are restored.
     assert ir.workflow.objective == "model overwrite"
     assert ir.agentKnowledge.unknownKnowledge == brief.professionalInformation
-    assert ir.quality.hardRestrictions == brief.mandatoryRules
+    assert ir.quality.hardRestrictions == spec.hardRestrictions
     assert ir.platforms.targets == brief.targetPlatforms
     assert metadata.providerId == "provider_test"
-    assert metadata.promptVersion == "generation-v2"
+    assert metadata.promptVersion == "generation-v3.2-sdd"
 
 
 def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:
@@ -142,7 +143,12 @@ def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:
         }
     )
 
-    _ir, metadata = agents.generate(build_brief(), provider)
+    brief = build_brief()
+    _ir, metadata = agents.generate(
+        brief,
+        build_skill_spec(brief, revision=1),
+        provider,
+    )
 
     expected = round(
         (
@@ -163,7 +169,12 @@ def test_generation_agent_propagates_model_failure_without_static_fallback() -> 
     agents = PydanticSkillAgents(PydanticAgentRuntime(model_factory=fail_factory))
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
-        agents.generate(build_brief(), build_provider())
+        brief = build_brief()
+        agents.generate(
+            brief,
+            build_skill_spec(brief, revision=1),
+            build_provider(),
+        )
 
 
 def test_repair_agent_preserves_locked_user_facts() -> None:
@@ -178,10 +189,12 @@ def test_repair_agent_preserves_locked_user_facts() -> None:
     )
     agents = PydanticSkillAgents(runtime)
     brief = build_brief()
+    spec = build_skill_spec(brief, revision=1)
     current = SkillIR.model_validate(generated_ir_payload())
 
     result, _metadata = agents.repair(
         brief=brief,
+        spec=spec,
         original_ir=current,
         current_ir=current,
         best_ir=current,
@@ -193,9 +206,40 @@ def test_repair_agent_preserves_locked_user_facts() -> None:
     )
 
     assert isinstance(result, RepairAgentResult)
-    assert result.skillIR.quality.hardRestrictions == brief.mandatoryRules
+    assert result.skillIR.quality.hardRestrictions == spec.hardRestrictions
     assert result.skillIR.platforms.targets == brief.targetPlatforms
     assert result.changedPaths == ["skill.description"]
+
+
+def test_model_added_hard_restrictions_are_demoted_to_soft_guidance() -> None:
+    payload = generated_ir_payload()
+    payload["quality"]["hardRestrictions"] = [
+        "不得编造来源",
+        "模型自行增加的业务限制",
+    ]
+    runtime = PydanticAgentRuntime(
+        model_factory=lambda _provider, _role: TestModel(custom_output_args=payload)
+    )
+    brief = build_brief()
+    spec = build_skill_spec(brief, revision=1)
+
+    ir, _metadata = PydanticSkillAgents(runtime).generate(
+        brief,
+        spec,
+        build_provider(),
+    )
+
+    assert ir.quality.hardRestrictions == spec.hardRestrictions
+    assert "模型自行增加的业务限制" in ir.quality.softGuidance
+
+
+def test_versioned_creator_skill_snapshot_has_matching_sha256() -> None:
+    bundle = load_creator_skill()
+
+    assert bundle.version == "1.1.0"
+    assert bundle.sourceUrl.startswith("https://github.com/anthropics/skills/")
+    assert bundle.sha256
+    assert "Progressive disclosure" in bundle.content
 
 
 def test_judge_agent_recalculates_dimension_score_from_criterion_scores() -> None:
@@ -229,8 +273,10 @@ def test_judge_agent_recalculates_dimension_score_from_criterion_scores() -> Non
     )
     agents = PydanticSkillAgents(runtime)
 
+    brief = build_brief()
     evaluation, _metadata = agents.evaluate_activation(
-        build_brief(),
+        brief,
+        build_skill_spec(brief, revision=1),
         SkillIR.model_validate(generated_ir_payload()),
         build_provider(),
     )

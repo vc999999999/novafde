@@ -22,7 +22,7 @@ def sanitize_skill_name(value: str | None) -> str:
     normalized = unicodedata.normalize("NFKD", value or "")
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
     parts = re.findall(r"[a-z0-9]+", ascii_text)
-    slug = "-".join(parts).strip("-")
+    slug = "-".join(parts).strip("-")[:64].rstrip("-")
     return slug or "untitled-skill"
 
 

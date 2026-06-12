@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 
 TargetPlatform = Literal["claude-code", "codex", "hermes-openclaw"]
@@ -101,6 +108,7 @@ QualitySeverity = Literal[
 QualitySource = Literal["validation", "activation", "implementation"]
 InputControl = Literal["short-text", "long-text", "single-select", "multi-select"]
 ConnectionStatusValue = Literal["unconfigured", "connecting", "connected", "disconnected", "error"]
+SpecItemSource = Literal["user", "system", "derived"]
 
 
 MAX_CRITERION_SCORE = 4
@@ -184,6 +192,97 @@ class SkillBrief(BaseModel):
     needsAssets: bool = False
 
 
+class SkillSpecIdentity(BaseModel):
+    skillName: str
+    displayName: str
+    targetPlatforms: list[TargetPlatform] = Field(default_factory=list)
+    outputLanguage: OutputLanguage
+
+
+class ActivationContract(BaseModel):
+    usage: str
+    desiredOutcome: str
+
+
+class WorkflowStageSpec(BaseModel):
+    id: str
+    statement: str
+    source: SpecItemSource = "user"
+    required: bool = True
+
+
+class AcceptanceCriterionSpec(BaseModel):
+    id: str
+    statement: str
+    source: SpecItemSource
+    required: bool = True
+
+
+class RestrictionSpec(BaseModel):
+    id: str
+    statement: str
+    source: SpecItemSource
+
+
+class FileContract(BaseModel):
+    needsReferences: bool = False
+    needsScripts: bool = False
+    needsAssets: bool = False
+
+
+class RelatedSkillSpec(BaseModel):
+    name: str
+    source: SpecItemSource = "user"
+
+
+class SupplementSpecItem(BaseModel):
+    id: str
+    question: str
+    statement: str
+    source: SpecItemSource = "user"
+
+
+class SkillSpec(BaseModel):
+    schemaVersion: str = "1.0"
+    revision: int = Field(ge=1)
+    identity: SkillSpecIdentity
+    activationContract: ActivationContract
+    workflowStages: list[WorkflowStageSpec] = Field(default_factory=list)
+    completionCriteria: str = ""
+    specialCases: str = ""
+    incrementalKnowledge: list[str] = Field(default_factory=list)
+    pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
+    hardRestrictions: list[str] = Field(default_factory=list)
+    restrictionItems: list[RestrictionSpec] = Field(default_factory=list)
+    fileContract: FileContract = Field(default_factory=FileContract)
+    relatedSkills: list[RelatedSkillSpec] = Field(default_factory=list)
+    acceptanceCriteria: list[AcceptanceCriterionSpec] = Field(default_factory=list)
+    userSupplements: list[SupplementSpecItem] = Field(default_factory=list)
+    sourceIssueIds: list[str] = Field(default_factory=list)
+
+
+class SkillSpecRevision(BaseModel):
+    revision: int
+    sha256: str
+    spec: SkillSpec
+    createdAt: int
+    sourceIssueIds: list[str] = Field(default_factory=list)
+
+
+class SkillSpecRevisionSummary(BaseModel):
+    revision: int
+    sha256: str
+    createdAt: int
+    sourceIssueIds: list[str] = Field(default_factory=list)
+
+
+class SkillSpecResponse(BaseModel):
+    current: SkillSpec
+    revision: int
+    sha256: str
+    revisions: list[SkillSpecRevisionSummary] = Field(default_factory=list)
+
+
 class SkillMeta(BaseModel):
     name: str
     description: str
@@ -197,6 +296,22 @@ class SkillWorkflow(BaseModel):
     decisionPoints: list[str] = Field(default_factory=list)
     failureHandling: list[str] = Field(default_factory=list)
     verification: list[str] = Field(default_factory=list)
+    skillHandoffs: list["SkillHandoff"] = Field(default_factory=list)
+
+
+class SkillHandoff(BaseModel):
+    skill: str
+    whenToInvoke: str
+    input: str
+    expectedOutput: str
+    failureHandling: str
+    source: Literal["derived"] = "derived"
+
+
+class SpecTraceItem(BaseModel):
+    specItemId: str
+    irPaths: list[str] = Field(default_factory=list)
+    renderedPaths: list[str] = Field(default_factory=list)
 
 
 class ReferenceFile(BaseModel):
@@ -234,13 +349,15 @@ class SkillPlatforms(BaseModel):
 
 
 class SkillIR(BaseModel):
-    schemaVersion: str = "1.0"
+    schemaVersion: Literal["1.0", "1.1"] = "1.1"
     skill: SkillMeta
     workflow: SkillWorkflow
     contextEngineering: ContextEngineering = Field(default_factory=ContextEngineering)
     agentKnowledge: AgentKnowledge = Field(default_factory=AgentKnowledge)
     quality: SkillQuality = Field(default_factory=SkillQuality)
     platforms: SkillPlatforms
+    specTrace: list[SpecTraceItem] = Field(default_factory=list)
+    _model_added_hard_restrictions: list[str] = PrivateAttr(default_factory=list)
 
 
 class FileNode(BaseModel):
@@ -261,6 +378,7 @@ class ValidationItem(BaseModel):
     blocksDownload: bool = False
     field: str | None = None
     inputLayer: InputLayer | None = None
+    specItemIds: list[str] = Field(default_factory=list)
 
 
 class UserQuestion(BaseModel):
@@ -298,6 +416,7 @@ class QualityIssue(BaseModel):
     userQuestion: str | None = None
     inputControl: InputControl | None = None
     options: list[str] = Field(default_factory=list)
+    specItemIds: list[str] = Field(default_factory=list)
 
 
 class JudgeEvaluation(BaseModel):
@@ -388,6 +507,8 @@ class GenerationAttempt(BaseModel):
     implementationReusedFromAttemptId: str | None = None
     durationMs: int = 0
     createdAt: int
+    skillSpecRevision: int | None = None
+    skillSpecSha256: str | None = None
 
 
 class UserSupplement(BaseModel):
@@ -500,6 +621,10 @@ class GenerationResult(BaseModel):
     artifactSha256: str | None = None
     targetPlatformsOverride: list[TargetPlatform] | None = None
     supplementScoreDelta: float | None = None
+    skillSpecAvailable: bool = False
+    skillSpecRevision: int | None = None
+    skillSpecSha256: str | None = None
+    skillSpecRevisions: list[SkillSpecRevision] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def set_run_id(self) -> "GenerationResult":

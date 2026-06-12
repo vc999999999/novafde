@@ -16,6 +16,7 @@ from app.orchestrator import QualityOrchestrator
 from app.quality import QualityPolicy
 from app.settings import Settings
 from app.storage import Storage
+from app.spec_builder import build_skill_spec
 from app.utils import make_id, now_ms
 from tests.test_api_pipeline import build_draft_payload
 
@@ -124,14 +125,15 @@ def valid_ir() -> SkillIR:
             "objective": brief.desiredOutcome,
             "steps": [
                 {
-                    "id": "step_1",
-                    "purpose": "Collect evidence",
-                    "action": "Collect and classify sources against the research questions.",
+                    "id": f"step_{index}",
+                    "purpose": stage,
+                    "action": f"Execute the required stage: {stage}",
                     "input": "Research scope and available sources",
                     "output": "Traceable evidence set",
                     "validation": "Every claim links to a source",
                     "failureHandling": "List evidence gaps instead of inventing conclusions",
                 }
+                for index, stage in enumerate(brief.roughProcess, start=1)
             ],
             "decisionPoints": [],
             "failureHandling": ["List evidence gaps"],
@@ -159,7 +161,47 @@ def valid_ir() -> SkillIR:
         },
         "platforms": {"targets": brief.targetPlatforms},
     }
-    return restore_authoritative_facts(SkillIR.model_validate(payload), brief)
+    ir = restore_authoritative_facts(
+        SkillIR.model_validate(payload),
+        brief,
+        build_skill_spec(brief, revision=1),
+    )
+    spec = build_skill_spec(brief, revision=1)
+    from app.models import SpecTraceItem
+    from app.spec_builder import required_spec_trace_items
+
+    counters = {
+        "workflow.steps": 0,
+        "quality.hardRestrictions": 0,
+        "agentKnowledge.unknownKnowledge": 0,
+        "agentKnowledge.pitfalls": 0,
+        "agentKnowledge.relatedSkills": 0,
+    }
+    ir.specTrace = []
+    for item in required_spec_trace_items(spec):
+        prefix = item.irPathPrefix
+        if prefix in counters:
+            ir_path = f"{prefix}[{counters[prefix]}]"
+            counters[prefix] += 1
+        elif prefix == "quality.validationChecklist":
+            ir_path = (
+                f"{prefix}["
+                f"{ir.quality.validationChecklist.index(item.expectedValue)}]"
+            )
+        elif prefix == "workflow.failureHandling":
+            ir_path = f"{prefix}[0]"
+        elif prefix == "contextEngineering.references":
+            ir_path = f"{prefix}[0]"
+        else:
+            ir_path = prefix
+        ir.specTrace.append(
+            SpecTraceItem(
+                specItemId=item.specItemId,
+                irPaths=[ir_path],
+                renderedPaths=[f"{ir.skill.name}/SKILL.md"],
+            )
+        )
+    return ir
 
 
 class ScriptedAgents:
@@ -177,7 +219,7 @@ class ScriptedAgents:
         self.activation_calls = 0
         self.implementation_calls = 0
 
-    def generate(self, brief, provider_config):
+    def generate(self, brief, spec, provider_config):
         return valid_ir(), metadata("generation")
 
     def repair(self, **kwargs):
@@ -190,7 +232,7 @@ class ScriptedAgents:
         result.skillIR.skill.description += f" Repair round {self.repair_calls}."
         return result, metadata("repair")
 
-    def evaluate_activation(self, brief, ir, provider_config):
+    def evaluate_activation(self, brief, spec, ir, provider_config):
         index = min(self.activation_calls, len(self.activation_scores) - 1)
         self.activation_calls += 1
         return (
@@ -202,7 +244,9 @@ class ScriptedAgents:
             metadata("activation-evaluation"),
         )
 
-    def evaluate_implementation(self, brief, ir, rendered_skill_md, file_paths, provider_config):
+    def evaluate_implementation(
+        self, brief, spec, ir, rendered_skill_md, file_paths, provider_config
+    ):
         index = min(self.implementation_calls, len(self.implementation_scores) - 1)
         self.implementation_calls += 1
         return (
@@ -251,8 +295,8 @@ def setup_run(
 
 def test_render_failure_fails_with_render_failed_code(tmp_path: Path) -> None:
     class UnsafePathAgents(ScriptedAgents):
-        def generate(self, brief, provider_config):
-            ir, meta = super().generate(brief, provider_config)
+        def generate(self, brief, spec, provider_config):
+            ir, meta = super().generate(brief, spec, provider_config)
             ir.contextEngineering.references = ["../escape.md"]
             return ir, meta
 
@@ -290,10 +334,10 @@ def test_repair_receives_best_attempt_issues_after_regression(tmp_path: Path) ->
             return result, metadata("repair")
 
         def evaluate_implementation(
-            self, brief, ir, rendered_skill_md, file_paths, provider_config
+            self, brief, spec, ir, rendered_skill_md, file_paths, provider_config
         ):
             evaluation, meta = super().evaluate_implementation(
-                brief, ir, rendered_skill_md, file_paths, provider_config
+                brief, spec, ir, rendered_skill_md, file_paths, provider_config
             )
             for issue in evaluation.issues:
                 issue.reason = f"round-call-{self.implementation_calls}"
@@ -317,6 +361,36 @@ def test_repair_receives_best_attempt_issues_after_regression(tmp_path: Path) ->
         if reason.startswith("round-call-")
     ]
     assert judge_reasons == ["round-call-1"]
+
+
+def test_missing_spec_trace_blocks_candidate_before_judges(tmp_path: Path) -> None:
+    class MissingTraceAgents(ScriptedAgents):
+        def generate(self, brief, spec, provider_config):
+            ir, meta = super().generate(brief, spec, provider_config)
+            ir.specTrace = []
+            return ir, meta
+
+    agents = MissingTraceAgents(
+        activation_scores=[4],
+        implementation_scores=[4],
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "failed"
+    assert agents.activation_calls == 0
+    assert agents.implementation_calls == 0
+    reports = storage.list_quality_reports(run_id)
+    assert reports
+    trace_issue = next(
+        issue
+        for issue in reports[0].issues
+        if issue.criterion == "SPEC-TRACE-001"
+    )
+    assert "workflow.stage.01" in trace_issue.specItemIds
 
 
 def test_orchestrator_packages_first_strict_candidate(tmp_path: Path) -> None:
@@ -388,6 +462,15 @@ def test_orchestrator_pauses_for_user_fact_and_resumes_same_run(tmp_path: Path) 
     assert completed.id == run_id
     assert agents.repair_calls == 1
     assert storage.list_supplements(run_id)
+    assert completed.skillSpecRevision == 2
+    assert len(completed.skillSpecRevisions) == 2
+    assert completed.skillSpecRevisions[0].revision == 1
+    assert completed.skillSpecRevisions[1].revision == 2
+    assert completed.skillSpecRevisions[0].sha256 != completed.skillSpecRevisions[1].sha256
+    attempts = storage.list_attempts(run_id)
+    assert attempts[0].skillSpecRevision == 1
+    assert attempts[-1].skillSpecRevision == 2
+    assert attempts[-1].skillSpecSha256 == completed.skillSpecSha256
 
 
 def test_orchestrator_stops_after_two_non_improving_repairs(tmp_path: Path) -> None:
@@ -433,18 +516,21 @@ class ConcurrentJudgeAgents(ScriptedAgents):
         self.activation_started = threading.Event()
         self.implementation_started = threading.Event()
 
-    def evaluate_activation(self, brief, ir, provider_config):
+    def evaluate_activation(self, brief, spec, ir, provider_config):
         self.activation_started.set()
         if not self.implementation_started.wait(timeout=1):
             raise AssertionError("implementation judge did not start concurrently")
-        return super().evaluate_activation(brief, ir, provider_config)
+        return super().evaluate_activation(brief, spec, ir, provider_config)
 
-    def evaluate_implementation(self, brief, ir, rendered_skill_md, file_paths, provider_config):
+    def evaluate_implementation(
+        self, brief, spec, ir, rendered_skill_md, file_paths, provider_config
+    ):
         self.implementation_started.set()
         if not self.activation_started.wait(timeout=1):
             raise AssertionError("activation judge did not start concurrently")
         return super().evaluate_implementation(
             brief,
+            spec,
             ir,
             rendered_skill_md,
             file_paths,
@@ -527,7 +613,7 @@ class FailingPreferredProviderAgents(ScriptedAgents):
         super().__init__(activation_scores=[4], implementation_scores=[4])
         self.generation_provider_ids: list[str] = []
 
-    def generate(self, brief, provider_config):
+    def generate(self, brief, spec, provider_config):
         self.generation_provider_ids.append(provider_config.id)
         if provider_config.id == "provider_primary":
             raise RuntimeError("primary unavailable")
@@ -593,16 +679,21 @@ class TokenHeavyAgents(ScriptedAgents):
         payload, call = result
         return payload, call.model_copy(update={"inputTokens": 10, "outputTokens": 10})
 
-    def generate(self, brief, provider_config):
-        return self._with_usage(super().generate(brief, provider_config))
+    def generate(self, brief, spec, provider_config):
+        return self._with_usage(super().generate(brief, spec, provider_config))
 
-    def evaluate_activation(self, brief, ir, provider_config):
-        return self._with_usage(super().evaluate_activation(brief, ir, provider_config))
+    def evaluate_activation(self, brief, spec, ir, provider_config):
+        return self._with_usage(
+            super().evaluate_activation(brief, spec, ir, provider_config)
+        )
 
-    def evaluate_implementation(self, brief, ir, rendered_skill_md, file_paths, provider_config):
+    def evaluate_implementation(
+        self, brief, spec, ir, rendered_skill_md, file_paths, provider_config
+    ):
         return self._with_usage(
             super().evaluate_implementation(
                 brief,
+                spec,
                 ir,
                 rendered_skill_md,
                 file_paths,
@@ -674,4 +765,147 @@ def test_candidates_below_degraded_minimum_fail_without_zip(tmp_path: Path) -> N
     assert generation is not None
     assert generation.status == "failed"
     assert generation.failureCode == "QUALITY_BELOW_MINIMUM"
+    assert generation.downloadInfo is None
+
+def test_skipped_supplement_does_not_create_new_spec_revision(tmp_path: Path) -> None:
+    agents = ScriptedAgents(
+        activation_scores=[3, 3, 3],
+        implementation_scores=[3, 3, 3],
+        require_user_input_on_first=True,
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    waiting = storage.get_generation(run_id)
+    assert waiting is not None
+    assert waiting.status == "awaiting_user_input"
+    assert waiting.skillSpecRevision == 1
+
+    orchestrator.resume_with_supplement(run_id, answers=[], skip=True)
+    completed = storage.get_generation(run_id)
+
+    assert completed is not None
+    assert completed.skillSpecRevision == 1
+    assert len(completed.skillSpecRevisions) == 1
+
+
+def test_supplement_answers_become_spec_items_and_survive_repair(
+    tmp_path: Path,
+) -> None:
+    agents = ScriptedAgents(
+        activation_scores=[3, 4],
+        implementation_scores=[3, 4],
+        require_user_input_on_first=True,
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    waiting = storage.get_generation(run_id)
+    assert waiting is not None
+    issue_id = waiting.userQuestions[0].issueId
+    statement_answer = "所有结论有来源并通过负责人复核。"
+
+    orchestrator.resume_with_supplement(
+        run_id,
+        answers=[{"issueId": issue_id, "answer": statement_answer}],
+        skip=False,
+    )
+    completed = storage.get_generation(run_id)
+
+    assert completed is not None
+    assert completed.status == "succeeded"
+    spec = completed.skillSpecRevisions[-1].spec
+    supplement_ids = [item.id for item in spec.userSupplements]
+    assert supplement_ids == [f"supplement.{issue_id}"]
+    assert statement_answer in spec.userSupplements[0].statement
+
+    final_attempt = next(
+        attempt
+        for attempt in storage.list_attempts(run_id)
+        if attempt.id == completed.finalAttemptId
+    )
+    final_ir = SkillIR.model_validate(final_attempt.skillIR)
+    traced_ids = {trace.specItemId for trace in final_ir.specTrace}
+    assert f"supplement.{issue_id}" in traced_ids
+    assert any(
+        statement_answer in knowledge
+        for knowledge in final_ir.agentKnowledge.unknownKnowledge
+    )
+
+
+def test_finalize_validates_against_the_attempt_spec_revision(tmp_path: Path) -> None:
+    # First candidate scores higher than every post-supplement repair, so the
+    # delivered package was generated under spec revision 1 while the latest
+    # revision is 2 (with a required user-supplement trace the old candidate
+    # never had). Finalization must validate against revision 1, not fail.
+    agents = ScriptedAgents(
+        activation_scores=[3, 2, 2, 2],
+        implementation_scores=[3, 2, 2, 2],
+        require_user_input_on_first=True,
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    waiting = storage.get_generation(run_id)
+    assert waiting is not None
+    issue_id = waiting.userQuestions[0].issueId
+
+    orchestrator.resume_with_supplement(
+        run_id,
+        answers=[{"issueId": issue_id, "answer": "通过负责人复核即视为完成。"}],
+        skip=False,
+    )
+    completed = storage.get_generation(run_id)
+    attempts = storage.list_attempts(run_id)
+
+    assert completed is not None
+    assert completed.status == "degraded"
+    assert completed.failureCode is None
+    assert completed.skillSpecRevision == 2
+    final_attempt = next(
+        attempt for attempt in attempts if attempt.id == completed.finalAttemptId
+    )
+    assert final_attempt.skillSpecRevision == 1
+
+def test_final_validation_blocker_fails_with_final_validation_failed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Per-candidate validation passes, but the final package re-check finds a
+    # blocker (simulated corruption between evaluation and packaging).
+    import app.orchestrator as orchestrator_module
+    from app.models import ValidationItem
+
+    agents = ScriptedAgents(activation_scores=[4], implementation_scores=[4])
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    real_evaluate = orchestrator_module.evaluate_validation
+
+    def corrupted_final_evaluate(package_root, ir, brief, spec=None):
+        items, issues, score = real_evaluate(package_root, ir, brief, spec)
+        if "final" in str(package_root):
+            items = [
+                *items,
+                ValidationItem(
+                    id="forced-final-blocker",
+                    ruleId="SPEC-TRACE-002",
+                    level="blocking",
+                    title="模拟最终包损坏",
+                    description="final package check failure",
+                    importance="test",
+                    blocksDownload=True,
+                ),
+            ]
+        return items, issues, score
+
+    monkeypatch.setattr(
+        orchestrator_module, "evaluate_validation", corrupted_final_evaluate
+    )
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "failed"
+    assert generation.failureCode == "FINAL_VALIDATION_FAILED"
     assert generation.downloadInfo is None

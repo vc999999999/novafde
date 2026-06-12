@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
+import skills_ref
 
-from app.models import QualityIssue, SkillBrief, SkillIR, ValidationItem
+from app.models import QualityIssue, SkillBrief, SkillIR, SkillSpec, ValidationItem
+from app.spec_builder import required_spec_trace_items
 from app.utils import ensure_safe_relative_path
+
+
+AGENT_SKILLS_VALIDATOR_VERSION = "0.1.1"
+VALIDATION_RULE_SET_VERSION = "2.0"
 
 
 def _safe_id_component(text: str) -> str:
@@ -16,7 +23,7 @@ def _safe_id_component(text: str) -> str:
 
 def validate_ir(ir: SkillIR) -> list[ValidationItem]:
     items: list[ValidationItem] = []
-    if ir.schemaVersion != "1.0" or not ir.skill.name or not ir.skill.description:
+    if ir.schemaVersion not in {"1.0", "1.1"} or not ir.skill.name or not ir.skill.description:
         items.append(
             ValidationItem(
                 id="ir-required-fields",
@@ -257,7 +264,264 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
                 field="workflow.failureHandling",
             )
         )
+    items.extend(validate_official_agent_skill(package_root, ir))
     return items
+
+
+def validate_official_agent_skill(
+    package_root: Path,
+    ir: SkillIR,
+) -> list[ValidationItem]:
+    installed_version = getattr(skills_ref, "__version__", "unknown")
+    if installed_version != AGENT_SKILLS_VALIDATOR_VERSION:
+        errors = [
+            "skills-ref 版本不一致："
+            f"期望 {AGENT_SKILLS_VALIDATOR_VERSION}，实际 {installed_version}。"
+        ]
+    else:
+        errors = skills_ref.validate(package_root / ir.skill.name)
+    if errors:
+        return [
+            ValidationItem(
+                id="official-agent-skills-validation",
+                ruleId="AGENT-SKILLS-001",
+                level="blocking",
+                title="官方 Agent Skills 校验失败",
+                description="；".join(errors),
+                importance="官方校验器定义了 Skill 包可被兼容运行时识别的基础规范。",
+                suggestion="修复目录名、frontmatter 字段、名称或 description 后重新渲染。",
+                blocksDownload=True,
+                field=f"{ir.skill.name}/SKILL.md",
+            )
+        ]
+    return [
+        ValidationItem(
+            id="official-agent-skills-validation-pass",
+            ruleId="AGENT-SKILLS-001",
+            level="pass",
+            title="官方 Agent Skills 校验通过",
+            description=(
+                f"skills-ref {AGENT_SKILLS_VALIDATOR_VERSION} 已接受该 Skill 包。"
+            ),
+            importance="官方校验通过可降低跨运行时安装失败风险。",
+            field=f"{ir.skill.name}/SKILL.md",
+        )
+    ]
+
+
+def validate_spec_compliance(
+    package_root: Path,
+    ir: SkillIR,
+    spec: SkillSpec,
+) -> list[ValidationItem]:
+    items: list[ValidationItem] = []
+    if ir.schemaVersion != "1.1":
+        items.append(
+            _spec_blocker(
+                "spec-ir-version",
+                "SPEC-001",
+                "SkillIR 未使用 SDD 追踪版本",
+                "带 SkillSpec 的生成必须使用 SkillIR 1.1。",
+                "schemaVersion",
+            )
+        )
+
+    if ir.quality.hardRestrictions != spec.hardRestrictions:
+        items.append(
+            _spec_blocker(
+                "spec-hard-restrictions",
+                "SPEC-RULE-001",
+                "权威硬限制不一致",
+                "SkillIR.hardRestrictions 必须与当前 SkillSpec 原文、顺序完全一致。",
+                "quality.hardRestrictions",
+                spec_item_ids=[
+                    restriction.id for restriction in spec.restrictionItems
+                ],
+            )
+        )
+
+    required = {
+        item.specItemId: item
+        for item in required_spec_trace_items(spec)
+    }
+    traces: dict[str, Any] = {}
+    duplicate_ids: set[str] = set()
+    for trace in ir.specTrace:
+        if trace.specItemId in traces:
+            duplicate_ids.add(trace.specItemId)
+        traces[trace.specItemId] = trace
+    missing_ids = sorted(set(required) - set(traces))
+    if missing_ids or duplicate_ids:
+        details = []
+        if missing_ids:
+            details.append(f"缺少：{', '.join(missing_ids)}")
+        if duplicate_ids:
+            details.append(f"重复：{', '.join(sorted(duplicate_ids))}")
+        items.append(
+            _spec_blocker(
+                "spec-trace-coverage",
+                "SPEC-TRACE-001",
+                "Spec Trace 覆盖不完整",
+                "；".join(details),
+                "specTrace",
+                spec_item_ids=[*missing_ids, *sorted(duplicate_ids)],
+            )
+        )
+
+    payload = ir.model_dump(mode="json")
+    invalid_details: list[str] = []
+    invalid_ids: dict[str, None] = {}
+    distinct_paths: dict[str, str] = {}
+
+    def flag_invalid(spec_item_id: str, message: str) -> None:
+        invalid_details.append(f"{spec_item_id}: {message}")
+        invalid_ids[spec_item_id] = None
+
+    for spec_item_id, requirement in required.items():
+        trace = traces.get(spec_item_id)
+        if trace is None:
+            continue
+        if not trace.irPaths or not trace.renderedPaths:
+            flag_invalid(spec_item_id, "映射路径为空")
+            continue
+        matching_values: list[Any] = []
+        for ir_path in trace.irPaths:
+            allowed_prefixes = (
+                requirement.irPathPrefix,
+                *requirement.alternateIrPathPrefixes,
+            )
+            if not any(
+                _matches_prefix(ir_path, prefix)
+                for prefix in allowed_prefixes
+            ):
+                flag_invalid(
+                    spec_item_id,
+                    f"{ir_path} 不属于 {' 或 '.join(allowed_prefixes)}",
+                )
+                continue
+            try:
+                value = _resolve_ir_path(payload, ir_path)
+            except (KeyError, IndexError, TypeError, ValueError):
+                flag_invalid(spec_item_id, f"IR 路径无效 {ir_path}")
+                continue
+            if not _has_content(value):
+                flag_invalid(spec_item_id, f"IR 路径内容为空 {ir_path}")
+                continue
+            matching_values.append(value)
+            if requirement.requiresDistinctPath:
+                owner = distinct_paths.setdefault(ir_path, spec_item_id)
+                if owner != spec_item_id:
+                    flag_invalid(spec_item_id, f"与 {owner} 复用了 {ir_path}")
+        if matching_values and requirement.expectedValue is not None and not any(
+            _contains_expected(value, requirement.expectedValue)
+            for value in matching_values
+        ):
+            flag_invalid(spec_item_id, "规格原文未在映射内容中实现")
+        for rendered_path in trace.renderedPaths:
+            try:
+                safe_path = ensure_safe_relative_path(rendered_path)
+            except ValueError:
+                flag_invalid(
+                    spec_item_id, f"最终文件路径不安全 {rendered_path}"
+                )
+                continue
+            if not (package_root / safe_path).is_file():
+                flag_invalid(
+                    spec_item_id, f"最终文件不存在 {rendered_path}"
+                )
+
+    if invalid_details:
+        items.append(
+            _spec_blocker(
+                "spec-trace-invalid-paths",
+                "SPEC-TRACE-002",
+                "Spec Trace 映射无效",
+                "；".join(invalid_details),
+                "specTrace",
+                spec_item_ids=list(invalid_ids),
+            )
+        )
+
+    if not [item for item in items if item.level == "blocking"]:
+        items.append(
+            ValidationItem(
+                id="spec-compliance-pass",
+                ruleId="SPEC-001",
+                level="pass",
+                title="SkillSpec 一致性校验通过",
+                description=f"{len(required)} 个必需规格条目均已映射到 IR 和最终文件。",
+                importance="可追踪规格确保生成结果没有静默遗漏用户要求。",
+                field="specTrace",
+            )
+        )
+    return items
+
+
+def _spec_blocker(
+    item_id: str,
+    rule_id: str,
+    title: str,
+    description: str,
+    field: str,
+    *,
+    spec_item_ids: list[str] | None = None,
+) -> ValidationItem:
+    return ValidationItem(
+        id=item_id,
+        ruleId=rule_id,
+        level="blocking",
+        title=title,
+        description=description,
+        importance="SkillSpec 是当前生成不可修改的交付契约。",
+        suggestion="让 Skill Creator 或 Repair Agent 补全映射，不得修改 SkillSpec。",
+        blocksDownload=True,
+        field=field,
+        specItemIds=list(spec_item_ids or []),
+    )
+
+
+def _matches_prefix(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(f"{prefix}.") or path.startswith(
+        f"{prefix}["
+    )
+
+
+_IR_PATH_SEGMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?")
+
+
+def _resolve_ir_path(payload: Any, path: str) -> Any:
+    current = payload
+    for raw_segment in path.split("."):
+        match = _IR_PATH_SEGMENT.fullmatch(raw_segment)
+        if match is None:
+            raise ValueError(path)
+        key, index = match.groups()
+        if not isinstance(current, dict):
+            raise TypeError(path)
+        current = current[key]
+        if index is not None:
+            if not isinstance(current, list):
+                raise TypeError(path)
+            current = current[int(index)]
+    return current
+
+
+def _has_content(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return value is not None
+
+
+def _contains_expected(value: Any, expected: Any) -> bool:
+    if value == expected:
+        return True
+    if isinstance(value, list):
+        return expected in value
+    if isinstance(value, dict) and isinstance(expected, str):
+        return expected in value.values()
+    return False
 
 
 def parse_frontmatter(markdown: str) -> dict:
@@ -325,8 +589,11 @@ def evaluate_validation(
     package_root: Path,
     ir: SkillIR,
     brief: SkillBrief,
+    spec: SkillSpec | None = None,
 ) -> tuple[list[ValidationItem], list[QualityIssue], float]:
     items = [*validate_ir(ir), *validate_rendered_package(package_root, ir)]
+    if spec is not None:
+        items.extend(validate_spec_compliance(package_root, ir, spec))
     if brief.professionalInformation and not ir.agentKnowledge.unknownKnowledge:
         items.append(
             ValidationItem(
@@ -373,6 +640,24 @@ def evaluate_validation(
             )
         )
 
+    model_added_rules = getattr(ir, "_model_added_hard_restrictions", [])
+    if model_added_rules:
+        items.append(
+            ValidationItem(
+                id="model-added-hard-restrictions",
+                ruleId="RULE-002",
+                level="warning",
+                title="模型新增硬限制已被降级",
+                description=(
+                    "以下非权威硬限制已从 hardRestrictions 移除并转入软性指导："
+                    f"{'；'.join(model_added_rules)}"
+                ),
+                importance="业务硬限制只能来自用户，系统硬限制只能来自确定性基线。",
+                suggestion="如确需成为硬限制，请由用户明确补充并创建新的 SkillSpec 修订。",
+                field="quality.hardRestrictions",
+            )
+        )
+
     skill_md_path = package_root / ir.skill.name / "SKILL.md"
     if skill_md_path.exists():
         line_count = len(skill_md_path.read_text(encoding="utf-8").splitlines())
@@ -404,7 +689,11 @@ def evaluate_validation(
             )
         )
 
-    issues = [_quality_issue_from_validation(item) for item in items if item.level != "pass"]
+    issues = [
+        _quality_issue_from_validation(item, ir=ir, spec=spec)
+        for item in items
+        if item.level != "pass"
+    ]
     blocker_count = sum(
         issue.severity in {"security_blocker", "structure_blocker"}
         for issue in issues
@@ -414,7 +703,12 @@ def evaluate_validation(
     return items, issues, score
 
 
-def _quality_issue_from_validation(item: ValidationItem) -> QualityIssue:
+def _quality_issue_from_validation(
+    item: ValidationItem,
+    *,
+    ir: SkillIR | None = None,
+    spec: SkillSpec | None = None,
+) -> QualityIssue:
     if item.level == "blocking":
         severity = "security_blocker" if item.ruleId == "PKG-002" else "structure_blocker"
     else:
@@ -429,4 +723,20 @@ def _quality_issue_from_validation(item: ValidationItem) -> QualityIssue:
         suggestion=item.suggestion,
         affectedPaths=[item.field] if item.field else [],
         autoFixable=item.ruleId in {"TRIG-001", "PKG-001"},
+        specItemIds=_spec_item_ids_for_issue(item, ir, spec),
     )
+
+
+def _spec_item_ids_for_issue(
+    item: ValidationItem,
+    ir: SkillIR | None,
+    spec: SkillSpec | None,
+) -> list[str]:
+    if spec is None or not item.ruleId.startswith("SPEC-"):
+        return []
+    if item.specItemIds:
+        return list(item.specItemIds)
+    return [
+        requirement.specItemId
+        for requirement in required_spec_trace_items(spec)
+    ]

@@ -12,6 +12,7 @@ import type {
   QualityRule,
   QualityEvaluationReport,
   SkillDraft,
+  SkillSpecResponse,
   SupplementAnswer,
 } from './types';
 
@@ -136,6 +137,12 @@ export function getGeneration(generationId: string) {
 export function getGenerationQuality(generationId: string) {
   return apiRequest<QualityEvaluationReport>(
     `/api/generations/${encodeURIComponent(generationId)}/quality`,
+  );
+}
+
+export function getGenerationSpec(generationId: string) {
+  return apiRequest<SkillSpecResponse>(
+    `/api/generations/${encodeURIComponent(generationId)}/spec`,
   );
 }
 

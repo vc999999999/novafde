@@ -10,10 +10,12 @@ import DownloadCard from '../components/DownloadCard';
 import GenerationLoading from '../components/GenerationLoading';
 import QualityScorePanel from '../components/QualityScorePanel';
 import SupplementDialog from '../components/SupplementDialog';
+import SkillSpecPanel from '../components/SkillSpecPanel';
 import {
   createDraft,
   patchDraft,
   getGeneration,
+  getGenerationSpec,
   startGeneration,
   submitGenerationSupplement,
   toGenerationDownloadUrl,
@@ -23,6 +25,7 @@ import { STEP_COMPLETION_WEIGHTS, STEP_KEYS, STEP_LABELS } from '../data';
 import type {
   GenerationResult,
   ModelConnectionStatus,
+  SkillSpecResponse,
   SupplementAnswer,
 } from '../types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -66,6 +69,8 @@ export default function CreatePage({
     resumeGenerationId,
   );
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [skillSpec, setSkillSpec] = useState<SkillSpecResponse | null>(null);
+  const [skillSpecError, setSkillSpecError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
@@ -77,6 +82,8 @@ export default function CreatePage({
   );
   const resumePending = useRef(false);
   const [prevResumeId, setPrevResumeId] = useState(resumeGenerationId);
+  const generationSpecAvailable = generation?.skillSpecAvailable ?? false;
+  const generationSpecRevision = generation?.skillSpecRevision ?? null;
 
   // Adjust state during render when the resume target changes (React-recommended
   // alternative to syncing props into state inside an effect).
@@ -86,6 +93,8 @@ export default function CreatePage({
       setGenerationId(resumeGenerationId);
       setPhase('generating');
       setPollingEnabled(true);
+      setSkillSpec(null);
+      setSkillSpecError(null);
     }
   }
 
@@ -173,6 +182,31 @@ export default function CreatePage({
     };
   }, [generationId, pollingEnabled]);
 
+  useEffect(() => {
+    if (!generationId || !generationSpecAvailable) return;
+    if (skillSpec?.revision === generationSpecRevision) return;
+
+    let cancelled = false;
+    getGenerationSpec(generationId)
+      .then((response) => {
+        if (cancelled) return;
+        setSkillSpec(response);
+        setSkillSpecError(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSkillSpecError('生成规格加载失败，请稍后刷新。');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationId,
+    generationSpecAvailable,
+    generationSpecRevision,
+    skillSpec?.revision,
+  ]);
+
   const handleGenerate = useCallback(async () => {
     if (connection.status !== 'connected') {
       setFormError('模型尚未连接。请先在设置中配置并测试生成与评测模型。');
@@ -182,6 +216,8 @@ export default function CreatePage({
     setFormError(null);
     setPhase('generating');
     setGeneration(null);
+    setSkillSpec(null);
+    setSkillSpecError(null);
     setGenerationError(null);
     setIsGenerating(true);
 
@@ -229,6 +265,8 @@ export default function CreatePage({
     setGeneration(null);
     setGenerationId(null);
     setGenerationError(null);
+    setSkillSpec(null);
+    setSkillSpecError(null);
     setFormError(null);
     setPhase('form');
   }, [resetDraft]);
@@ -261,14 +299,14 @@ export default function CreatePage({
           </Alert>
         )}
 
-        <div className="grid min-h-[calc(100dvh-160px)] flex-1 grid-cols-1 items-stretch gap-3 lg:grid-cols-[1fr_var(--sidebar-width)]">
-          <Card className="flex flex-col border-panel-border bg-panel p-5 shadow-md">
+        <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-[1fr_var(--sidebar-width)]">
+          <Card className="flex flex-col border-panel-border bg-panel p-5 shadow-md lg:self-stretch">
             <div className="mb-5">
               <h2 className="mb-1 text-lg font-semibold">{STEP_LABELS[stepKey]}</h2>
               <p className="text-xs leading-normal text-muted-foreground">{STEP_DESCRIPTIONS[currentStep]}</p>
             </div>
 
-            <div className="flex flex-1 flex-col">
+            <div className="flex flex-col">
               {stepKey === 'basic' && <BasicStep draft={draft} onUpdate={updateDraft} />}
               {stepKey === 'purpose' && <PurposeStep draft={draft} onUpdatePurpose={updatePurpose} />}
               {stepKey === 'knowledge' && <KnowledgeStep draft={draft} onUpdateKnowledge={updateKnowledge} />}
@@ -385,6 +423,14 @@ export default function CreatePage({
             isFailed={generation?.status === 'failed'}
           />
         )}
+        {(skillSpec || skillSpecError) && (
+          <SkillSpecPanel
+            response={skillSpec}
+            error={skillSpecError}
+            compact
+            className="fixed bottom-5 right-5 z-50 w-[min(380px,calc(100%-2rem))]"
+          />
+        )}
         {isAwaitingInput && generation.userQuestions.length > 0 && (
           <SupplementDialog
             key={generation.userQuestions.map((question) => question.issueId).join(':')}
@@ -425,6 +471,9 @@ export default function CreatePage({
   }
 
   const downloadable = generation.status === 'succeeded' || generation.status === 'degraded';
+  const historicalSpecUnavailable = (
+    TERMINAL_STATUSES.has(generation.status) && !generation.skillSpecAvailable
+  );
   const title = generation.status === 'succeeded'
     ? '高质量 Skill 已生成'
     : generation.status === 'degraded'
@@ -447,6 +496,12 @@ export default function CreatePage({
               <AlertDescription>{generationError}</AlertDescription>
             </Alert>
           )}
+
+          <SkillSpecPanel
+            response={skillSpec}
+            error={skillSpecError}
+            unavailable={historicalSpecUnavailable}
+          />
 
           <Card className="border-panel-border bg-panel p-5 shadow-md">
             <p className="mb-4 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">文件结构</p>

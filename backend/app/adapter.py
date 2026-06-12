@@ -35,11 +35,16 @@ def _guide_for(platform: TargetPlatform, skill_name: str) -> str:
     if platform == "codex":
         return (
             "# Codex Installation\n\n"
-            f"Copy `{skill_name}/` into `~/.codex/skills/{skill_name}/` for a personal Skill.\n\n"
-            "For project Skills, use the project-specific Codex skills directory configured in that workspace.\n"
+            f"Copy `{skill_name}/` into one of these locations:\n\n"
+            f"- Personal: `~/.agents/skills/{skill_name}/`\n"
+            f"- Project: `.agents/skills/{skill_name}/`\n"
         )
     return (
         "# Hermes/OpenClaw Installation\n\n"
-        f"Copy `{skill_name}/` into the configured Hermes/OpenClaw skills directory.\n\n"
-        "The exact path is deployment-specific, so keep it configurable and verify it in your runtime settings.\n"
+        "## Hermes\n\n"
+        f"- Personal: `~/.hermes/skills/{skill_name}/`\n\n"
+        "## OpenClaw\n\n"
+        f"- Workspace: `skills/{skill_name}/`\n"
+        f"- Shared Agent Skills: `~/.agents/skills/{skill_name}/`\n"
+        f"- Personal OpenClaw: `~/.openclaw/skills/{skill_name}/`\n"
     )

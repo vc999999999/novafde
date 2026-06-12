@@ -21,7 +21,7 @@
 
 NovaFDE 是一个**纯本地运行的 AI Skill 生成平台**，帮助开发者通过四步 Web 表单向导快速创建符合规范的 `SKILL.md` 文件。
 
-后端使用 **PydanticAI** 生成结构化 `SkillIR`，再由确定性 renderer 输出 `SKILL.md` 与三端安装说明。支持 **Claude Code**、**Codex**、**Hermes / OpenClaw** 三端适配。
+后端先把 `SkillBrief` 确定性构建为不可变、带 SHA256 修订记录的 `SkillSpec`，再使用版本化的官方 Skill Creator 方法论生成 `SkillIR 1.1`。最终由确定性 renderer 输出 `SKILL.md` 与三端安装说明，并通过固定版本 `skills-ref==0.1.1` 校验。
 
 ### 核心功能
 
@@ -29,6 +29,9 @@ NovaFDE 是一个**纯本地运行的 AI Skill 生成平台**，帮助开发者�
 |------|------|
 | **四步可视化向导** | 基本信息 → 用途描述 → 知识库 → 补充信息 |
 | **PydanticAI 质量循环** | 初始候选后最多三轮定向修复，始终选择历史最高分安全候选 |
+| **SDD 规格驱动生成** | 每次生成绑定只读 SkillSpec 修订、SHA256 和逐项 Spec Trace |
+| **官方 Skill Creator** | 使用仓库内版本化、可审计的官方方法论快照设计 SkillIR |
+| **官方规范校验** | 每个候选和最终包都由本地 `skills-ref` 校验，不依赖运行时网络 |
 | **三类质量评测** | Validation、Activation、Implementation 评分 |
 | **智能补充** | 缺少不可推断的业务事实时暂停并请求用户补充 |
 | **三端适配** | Claude Code / Codex / Hermes-OpenClaw |
@@ -60,6 +63,9 @@ novafde/
 │   │   ├── models.py         # 数据模型（Pydantic）
 │   │   ├── service.py        # 业务逻辑
 │   │   ├── orchestrator.py   # PydanticAI 质量循环编排器
+│   │   ├── spec_builder.py   # 确定性 SkillSpec 与稳定追踪 ID
+│   │   ├── creator_skill.py  # 版本化 Skill Creator 快照加载
+│   │   ├── validator.py      # Spec Trace 与官方 Agent Skills 校验
 │   │   ├── quality.py        # 质量评分引擎
 │   │   └── settings.py       # 配置加载
 │   ├── tests/                # 后端测试（包含质量循环测试）
@@ -96,7 +102,7 @@ novafde/
 
 NovaFDE is a **pure local AI Skill generation platform** that helps developers quickly create `SKILL.md` files through a 4-step web form wizard.
 
-The backend uses **PydanticAI** to generate structured `SkillIR`, which is then rendered by a deterministic renderer into `SKILL.md` and installation instructions for three platforms. Supports **Claude Code**, **Codex**, and **Hermes / OpenClaw**.
+The backend deterministically builds an immutable, SHA256-versioned `SkillSpec` before using a versioned official Skill Creator methodology to generate `SkillIR 1.1`. A deterministic renderer writes the package, and pinned `skills-ref==0.1.1` validates every candidate and final artifact.
 
 ### Core Features
 
@@ -104,6 +110,9 @@ The backend uses **PydanticAI** to generate structured `SkillIR`, which is then 
 |---------|-------------|
 | **4-Step Visual Wizard** | Basic Info → Purpose → Knowledge Base → Supplement |
 | **PydanticAI Quality Loop** | Up to 3 rounds of targeted fixes after initial candidates, always selects highest-scoring safe candidate |
+| **Specification-Driven Generation** | Every attempt is bound to an immutable SkillSpec revision, SHA256, and item-level Spec Trace |
+| **Versioned Skill Creator** | Uses an audited local snapshot of the official methodology |
+| **Official Validation** | Validates every candidate and final package locally with pinned `skills-ref` |
 | **Three Quality Evaluations** | Validation, Activation, and Implementation scoring |
 | **Smart Supplements** | Pauses and requests user input when business facts cannot be inferred |
 | **Multi-Platform Support** | Claude Code / Codex / Hermes-OpenClaw |
@@ -135,6 +144,9 @@ novafde/
 │   │   ├── models.py         # Data models (Pydantic)
 │   │   ├── service.py        # Business logic
 │   │   ├── orchestrator.py   # PydanticAI quality loop orchestrator
+│   │   ├── spec_builder.py   # Deterministic SkillSpec and stable trace IDs
+│   │   ├── creator_skill.py  # Versioned Skill Creator snapshot loader
+│   │   ├── validator.py      # Spec Trace and official Agent Skills validation
 │   │   ├── quality.py        # Quality scoring engine
 │   │   └── settings.py       # Configuration loading
 │   ├── tests/                # Backend tests (including quality loop tests)
