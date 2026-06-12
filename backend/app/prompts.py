@@ -1,5 +1,5 @@
 GENERATION_PROMPT_VERSION = "generation-v3.3-sdd"
-REPAIR_PROMPT_VERSION = "repair-v3.2-sdd"
+REPAIR_PROMPT_VERSION = "repair-v3.3-sdd"
 ACTIVATION_PROMPT_VERSION = "activation-judge-v2.1-sdd"
 IMPLEMENTATION_PROMPT_VERSION = "implementation-judge-v2-sdd"
 
@@ -99,7 +99,8 @@ Rules:
   trace bound to valid IR paths and real rendered package paths.
 - Trace each spec item to its fixed IR home (identity -> skill.* and
   platforms.targets; activation.outcome -> workflow.objective; workflow
-  stages -> workflow.steps[i]; incremental knowledge and supplements ->
+  stages -> workflow.steps[i]; special cases -> workflow.decisionPoints[i] or
+  workflow.failureHandling[i]; incremental knowledge and supplements ->
   agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
   hard restrictions -> quality.hardRestrictions[i]; file contracts ->
   contextEngineering.*; related skills -> agentKnowledge.relatedSkills[i];

@@ -242,6 +242,63 @@ def test_enforce_spec_contract_repairs_misplaced_ir_paths() -> None:
     ]
 
 
+def test_enforce_spec_contract_repairs_special_case_and_acceptance_traces() -> None:
+    from app.agent import restore_authoritative_facts
+    from app.models import SkillIR
+    from app.spec_builder import enforce_spec_contract
+
+    brief, _ = normalize_draft(_draft())
+    spec = build_skill_spec(brief, revision=1)
+    ir = restore_authoritative_facts(
+        SkillIR.model_validate(
+            {
+                "skill": {
+                    "name": "product-research",
+                    "description": "Use when research is needed.",
+                    "language": "en",
+                },
+                "workflow": {
+                    "objective": brief.desiredOutcome,
+                    "steps": [],
+                    "decisionPoints": [],
+                    "failureHandling": [],
+                },
+                "quality": {
+                    "hardRestrictions": list(spec.hardRestrictions),
+                    "validationChecklist": ["Review the output before delivery."],
+                },
+                "platforms": {"targets": ["claude-code"]},
+                "specTrace": [
+                    {
+                        "specItemId": "acceptance.01",
+                        "irPaths": ["quality.validationChecklist[0]"],
+                        "renderedPaths": ["product-research/SKILL.md"],
+                    }
+                ],
+            }
+        ),
+        brief,
+        spec,
+    )
+
+    enforced = enforce_spec_contract(ir, spec)
+
+    trace = {item.specItemId: item for item in enforced.specTrace}
+    special_case_index = enforced.workflow.decisionPoints.index(spec.specialCases)
+    acceptance_index = enforced.quality.validationChecklist.index(
+        spec.acceptanceCriteria[0].statement
+    )
+    assert trace["special-cases.01"].irPaths == [
+        f"workflow.decisionPoints[{special_case_index}]"
+    ]
+    assert trace["special-cases.01"].renderedPaths == [
+        "product-research/SKILL.md"
+    ]
+    assert trace["acceptance.01"].irPaths == [
+        f"quality.validationChecklist[{acceptance_index}]"
+    ]
+
+
 def test_enforce_spec_contract_normalizes_context_engineering_paths() -> None:
     from app.models import SkillIR
     from app.spec_builder import enforce_spec_contract

@@ -60,6 +60,7 @@ def required_spec_trace_items(spec: SkillSpec) -> list[RequiredSpecTraceItem]:
             RequiredSpecTraceItem(
                 "special-cases.01",
                 "workflow.decisionPoints",
+                spec.specialCases,
                 alternateIrPathPrefixes=("workflow.failureHandling",),
             )
         )
@@ -287,6 +288,21 @@ def _canonical_ir_path(
         if expected in ir.quality.hardRestrictions:
             return f"{prefix}[{ir.quality.hardRestrictions.index(expected)}]"
         return None
+    if prefix == "workflow.decisionPoints":
+        if expected in ir.workflow.decisionPoints:
+            return f"{prefix}[{ir.workflow.decisionPoints.index(expected)}]"
+        alternate = "workflow.failureHandling"
+        if expected in ir.workflow.failureHandling:
+            return (
+                f"{alternate}[{ir.workflow.failureHandling.index(expected)}]"
+            )
+        return None
+    if prefix == "quality.validationChecklist":
+        if expected in ir.quality.validationChecklist:
+            return (
+                f"{prefix}[{ir.quality.validationChecklist.index(expected)}]"
+            )
+        return None
     return None
 
 
@@ -296,13 +312,12 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
     Rendered paths and the package layout are decided by the renderer, not the
     model, so wrong or missing skill-directory prefixes are normalized instead
     of failing the candidate — both in specTrace.renderedPaths and in
-    contextEngineering file paths. Incremental knowledge and user supplement
-    statements are authoritative user facts that must survive every candidate,
-    so they are appended verbatim to agentKnowledge.unknownKnowledge when the
-    agent omitted them. Finally, irPaths bookkeeping is repaired: paths that
-    point outside the section required by the spec item are dropped, and the
-    canonical path (which is fully determined by the spec for identity,
-    activation, knowledge, and restriction items) is restored.
+    contextEngineering file paths. Incremental knowledge, user supplements,
+    special cases, and acceptance criteria are authoritative facts that must
+    survive every candidate, so missing values are restored to their fixed IR
+    homes. Finally, irPaths bookkeeping is repaired: paths that point outside
+    the required section or at stale paraphrases are replaced by the canonical
+    path whenever the contract determines one.
     """
     enforced = ir.model_copy(deep=True)
     skill_name = enforced.skill.name
@@ -334,6 +349,19 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
     ):
         if statement not in knowledge:
             knowledge.append(statement)
+    if (
+        spec.specialCases.strip()
+        and spec.specialCases not in enforced.workflow.decisionPoints
+        and spec.specialCases not in enforced.workflow.failureHandling
+    ):
+        enforced.workflow.decisionPoints.append(spec.specialCases)
+    for criterion in spec.acceptanceCriteria:
+        if (
+            criterion.required
+            and criterion.statement not in enforced.quality.validationChecklist
+        ):
+            enforced.quality.validationChecklist.append(criterion.statement)
+
     traced_ids = {trace.specItemId for trace in enforced.specTrace}
     for supplement in spec.userSupplements:
         if supplement.id in traced_ids:
@@ -361,10 +389,36 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
             if any(_matches_ir_prefix(path, prefix) for prefix in allowed)
         ]
         canonical = _canonical_ir_path(enforced, requirement)
-        if canonical is not None and canonical not in kept:
-            kept.append(canonical)
+        if canonical is not None:
+            kept = [canonical]
         if kept:
             trace.irPaths = kept
         if not trace.renderedPaths:
             trace.renderedPaths = [f"{skill_name}/SKILL.md"]
+
+    traced_ids = {trace.specItemId for trace in enforced.specTrace}
+    deterministic_trace_ids = {
+        "special-cases.01",
+        *(
+            criterion.id
+            for criterion in spec.acceptanceCriteria
+            if criterion.required
+        ),
+    }
+    for spec_item_id, requirement in requirements.items():
+        if (
+            spec_item_id in traced_ids
+            or spec_item_id not in deterministic_trace_ids
+        ):
+            continue
+        canonical = _canonical_ir_path(enforced, requirement)
+        if canonical is None:
+            continue
+        enforced.specTrace.append(
+            SpecTraceItem(
+                specItemId=spec_item_id,
+                irPaths=[canonical],
+                renderedPaths=[f"{skill_name}/SKILL.md"],
+            )
+        )
     return enforced
