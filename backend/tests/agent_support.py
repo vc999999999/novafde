@@ -191,16 +191,6 @@ def build_test_agents() -> PydanticSkillAgents:
                 "交付结果必须实现目标：把零散市场信息转成可验证的产品研究结论",
             ],
         },
-        {
-            "items": [
-                item
-                for item in skill_ir["specTrace"]
-                if (
-                    item["specItemId"].startswith("activation.")
-                    or item["specItemId"].startswith("workflow.stage.")
-                )
-            ]
-        },
     ]
     generation_call = 0
 

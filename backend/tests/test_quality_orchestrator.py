@@ -20,7 +20,6 @@ from app.spec_builder import build_skill_spec
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
-    SemanticTraceResult,
     WorkflowGenerationResult,
 )
 from app.utils import make_id, now_ms
@@ -227,7 +226,6 @@ class ScriptedAgents:
         self.workflow_calls = 0
         self.knowledge_calls = 0
         self.quality_calls = 0
-        self.trace_calls = 0
 
     def generate_workflow(self, brief, spec, provider_config, feedback):
         self.workflow_calls += 1
@@ -272,28 +270,6 @@ class ScriptedAgents:
                     for criterion in spec.acceptanceCriteria
                     if criterion.required
                 ],
-            ),
-            metadata("generation"),
-        )
-
-    def generate_semantic_trace(
-        self, brief, spec, ir, provider_config, feedback
-    ):
-        self.trace_calls += 1
-        source = valid_ir()
-        return (
-            SemanticTraceResult(
-                items=[
-                    {
-                        "specItemId": item.specItemId,
-                        "irPaths": item.irPaths,
-                    }
-                    for item in source.specTrace
-                    if (
-                        item.specItemId.startswith("activation.")
-                        or item.specItemId.startswith("workflow.stage.")
-                    )
-                ]
             ),
             metadata("generation"),
         )
@@ -446,15 +422,8 @@ def test_repair_receives_best_attempt_issues_after_regression(tmp_path: Path) ->
     assert judge_reasons == ["round-call-1"]
 
 
-def test_missing_spec_trace_blocks_candidate_before_judges(tmp_path: Path) -> None:
-    class MissingTraceAgents(ScriptedAgents):
-        def generate_semantic_trace(
-            self, brief, spec, ir, provider_config, feedback
-        ):
-            self.trace_calls += 1
-            return SemanticTraceResult(items=[]), metadata("generation")
-
-    agents = MissingTraceAgents(
+def test_system_managed_trace_packages_without_trace_agent(tmp_path: Path) -> None:
+    agents = ScriptedAgents(
         activation_scores=[4],
         implementation_scores=[4],
     )
@@ -462,14 +431,14 @@ def test_missing_spec_trace_blocks_candidate_before_judges(tmp_path: Path) -> No
 
     orchestrator.run(run_id)
     generation = storage.get_generation(run_id)
+    attempts = storage.list_attempts(run_id)
 
     assert generation is not None
-    assert generation.status == "failed"
-    assert generation.failureCode == "TRACE_STAGE_FAILED"
-    assert agents.activation_calls == 0
-    assert agents.implementation_calls == 0
-    assert storage.list_quality_reports(run_id) == []
-    assert agents.trace_calls == 3
+    assert generation.status == "succeeded"
+    assert generation.completedStages == ["workflow", "knowledge", "quality"]
+    assert not hasattr(agents, "generate_semantic_trace")
+    assert attempts
+    assert SkillIR.model_validate(attempts[0].skillIR).specTrace
 
 
 def test_orchestrator_packages_first_strict_candidate(tmp_path: Path) -> None:
@@ -845,7 +814,6 @@ def test_failed_workflow_stage_retries_only_workflow(tmp_path: Path) -> None:
     assert agents.workflow_calls == 3
     assert agents.knowledge_calls == 1
     assert agents.quality_calls == 1
-    assert agents.trace_calls == 1
     workflow_attempts = [
         item for item in generation.stageAttempts if item.stage == "workflow"
     ]

@@ -38,7 +38,6 @@ from app.packager import (
 from app.prompts import (
     KNOWLEDGE_PROMPT_VERSION,
     QUALITY_PROMPT_VERSION,
-    SEMANTIC_TRACE_PROMPT_VERSION,
     WORKFLOW_PROMPT_VERSION,
 )
 from app.quality import QualityPolicy, aggregate_quality_report, select_best_attempt
@@ -48,12 +47,10 @@ from app.spec_builder import build_skill_spec, enforce_spec_contract
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
-    SemanticTraceResult,
     WorkflowGenerationResult,
     assemble_skill_ir,
     validate_knowledge_result,
     validate_quality_result,
-    validate_semantic_trace_result,
     validate_workflow_result,
 )
 from app.state_machine import assert_generation_transition
@@ -93,7 +90,7 @@ class UserCancelledError(RuntimeError):
 
 STAGED_GENERATION_PROMPT_VERSION = (
     f"{WORKFLOW_PROMPT_VERSION}+{KNOWLEDGE_PROMPT_VERSION}+"
-    f"{QUALITY_PROMPT_VERSION}+{SEMANTIC_TRACE_PROMPT_VERSION}"
+    f"{QUALITY_PROMPT_VERSION}"
 )
 
 _INITIAL_CANDIDATE_PROGRESS = {
@@ -1261,28 +1258,6 @@ class QualityOrchestrator:
         )
         calls.append(metadata)
 
-        preliminary_ir = assemble_skill_ir(
-            brief,
-            spec,
-            workflow,
-            knowledge,
-            quality,
-            SemanticTraceResult(),
-        )
-        semantic_trace, metadata = self._run_generation_stage(
-            generation,
-            stage="trace",
-            current_stage="generating-trace",
-            progress=58,
-            message="正在建立语义规格映射",
-            call=lambda provider, feedback: self.agents.generate_semantic_trace(
-                brief, spec, preliminary_ir, provider, feedback
-            ),
-            validate=lambda result: validate_semantic_trace_result(
-                result, spec, preliminary_ir
-            ),
-        )
-        calls.append(metadata)
         return (
             assemble_skill_ir(
                 brief,
@@ -1290,7 +1265,6 @@ class QualityOrchestrator:
                 workflow,
                 knowledge,
                 quality,
-                semantic_trace,
             ),
             calls,
         )

@@ -1,11 +1,10 @@
-GENERATION_PROMPT_VERSION = "generation-v3.3-sdd"
+GENERATION_PROMPT_VERSION = "generation-v3.4-managed-trace"
 REPAIR_PROMPT_VERSION = "repair-v3.3-sdd"
 ACTIVATION_PROMPT_VERSION = "activation-judge-v2.1-sdd"
 IMPLEMENTATION_PROMPT_VERSION = "implementation-judge-v2-sdd"
 WORKFLOW_PROMPT_VERSION = "workflow-v1-staged"
 KNOWLEDGE_PROMPT_VERSION = "knowledge-v1-staged"
 QUALITY_PROMPT_VERSION = "quality-v1-staged"
-SEMANTIC_TRACE_PROMPT_VERSION = "semantic-trace-v1-staged"
 
 
 WORKFLOW_INSTRUCTIONS = """\
@@ -64,23 +63,6 @@ requested QualityGenerationResult.
 """
 
 
-SEMANTIC_TRACE_INSTRUCTIONS = """\
-You are SkillForge's semantic trace mapper. Return only the requested
-SemanticTraceResult.
-
-- SkillSpec and SkillIR are read-only.
-- Map activation.usage only to skill.description.
-- Map activation.outcome only to workflow.objective.
-- Map every required workflow stage to the distinct workflow.steps[i] that
-  implements it.
-- Do not map identity, knowledge, restrictions, files, related Skills,
-  special cases, supplements, pitfalls, or acceptance criteria. The
-  application maps those deterministically.
-- Do not reuse one workflow step for multiple required workflow stages.
-- Retry feedback describes invalid or missing mappings in the previous output.
-"""
-
-
 GENERATION_INSTRUCTIONS = """\
 You are SkillForge's Skill Creator Agent. Implement the supplied read-only
 SkillSpec as a complete SkillIR. SkillBrief is supporting source context; when
@@ -91,24 +73,8 @@ Output rules:
 - Write every human-readable field in the language given by SkillBrief.outputLanguage.
 - Use schemaVersion 1.1.
 - Never change, reinterpret, or weaken the SkillSpec.
-- Add specTrace entries for every required identity field, activation contract,
-  workflow stage, special case, incremental knowledge item, user supplement,
-  pitfall, hard restriction, required file contract, related Skill, and
-  acceptance criterion. Every trace must name valid SkillIR paths and real
-  rendered package paths.
-- Each spec item type has a fixed home in the SkillIR, and its trace irPaths
-  must point there: identity.name -> skill.name; identity.platforms ->
-  platforms.targets; activation.usage -> skill.description;
-  activation.outcome -> workflow.objective; workflow stages ->
-  workflow.steps[i]; special cases -> workflow.decisionPoints or
-  workflow.failureHandling; incremental knowledge and user supplements ->
-  agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
-  hard restrictions -> quality.hardRestrictions[i]; file contracts ->
-  contextEngineering.references / referenceFiles / scripts / assets; related
-  skills -> agentKnowledge.relatedSkills[i]; acceptance criteria ->
-  quality.validationChecklist[i]. Never trace a spec item to any other IR
-  section, even when the same fact is also applied in workflow steps or
-  reference files.
+- Leave specTrace empty. The application builds all trace identifiers, IR
+  paths, and rendered paths deterministically after generation.
 - Keep every incremental knowledge and supplement statement verbatim as an
   agentKnowledge.unknownKnowledge entry, in addition to weaving it into steps
   or reference files.

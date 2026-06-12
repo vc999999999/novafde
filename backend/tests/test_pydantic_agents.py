@@ -16,7 +16,6 @@ from app.spec_builder import build_skill_spec
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
-    SemanticTraceResult,
     WorkflowGenerationResult,
 )
 
@@ -140,25 +139,6 @@ def quality_payload() -> dict:
     }
 
 
-def semantic_trace_payload() -> dict:
-    return {
-        "items": [
-            {
-                "specItemId": "activation.usage",
-                "irPaths": ["skill.description"],
-            },
-            {
-                "specItemId": "activation.outcome",
-                "irPaths": ["workflow.objective"],
-            },
-            {
-                "specItemId": "workflow.stage.01",
-                "irPaths": ["workflow.steps[0]"],
-            },
-        ]
-    }
-
-
 def test_staged_generation_agents_return_focused_outputs() -> None:
     brief = build_brief()
     spec = build_skill_spec(brief, revision=1)
@@ -209,29 +189,13 @@ def test_staged_generation_agents_return_focused_outputs() -> None:
         [],
     )
 
-    trace_agents = PydanticSkillAgents(
-        PydanticAgentRuntime(
-            model_factory=lambda _provider, _role: TestModel(
-                custom_output_args=semantic_trace_payload()
-            )
-        )
-    )
-    trace, trace_meta = trace_agents.generate_semantic_trace(
-        brief,
-        spec,
-        SkillIR.model_validate(generated_ir_payload()),
-        provider,
-        [],
-    )
-
     assert isinstance(workflow, WorkflowGenerationResult)
     assert isinstance(knowledge, KnowledgeGenerationResult)
     assert isinstance(quality, QualityGenerationResult)
-    assert isinstance(trace, SemanticTraceResult)
+    assert not hasattr(workflow_agents, "generate_semantic_trace")
     assert workflow_meta.promptVersion == "workflow-v1-staged"
     assert knowledge_meta.promptVersion == "knowledge-v1-staged"
     assert quality_meta.promptVersion == "quality-v1-staged"
-    assert trace_meta.promptVersion == "semantic-trace-v1-staged"
 
 
 def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() -> None:
@@ -255,7 +219,7 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     assert ir.quality.hardRestrictions == spec.hardRestrictions
     assert ir.platforms.targets == brief.targetPlatforms
     assert metadata.providerId == "provider_test"
-    assert metadata.promptVersion == "generation-v3.3-sdd"
+    assert metadata.promptVersion == "generation-v3.4-managed-trace"
 
 
 def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:

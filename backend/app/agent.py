@@ -27,8 +27,6 @@ from app.prompts import (
     QUALITY_PROMPT_VERSION,
     REPAIR_INSTRUCTIONS,
     REPAIR_PROMPT_VERSION,
-    SEMANTIC_TRACE_INSTRUCTIONS,
-    SEMANTIC_TRACE_PROMPT_VERSION,
     WORKFLOW_INSTRUCTIONS,
     WORKFLOW_PROMPT_VERSION,
 )
@@ -36,7 +34,6 @@ from app.provider_runtime import PydanticAgentRuntime
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
-    SemanticTraceResult,
     WorkflowGenerationResult,
 )
 
@@ -70,16 +67,6 @@ class SkillAgentRuntime(Protocol):
         provider: ModelProviderConfig,
         feedback: list[str],
     ) -> tuple[QualityGenerationResult, AgentCallMetadata]:
-        ...
-
-    def generate_semantic_trace(
-        self,
-        brief: SkillBrief,
-        spec: SkillSpec,
-        ir: SkillIR,
-        provider: ModelProviderConfig,
-        feedback: list[str],
-    ) -> tuple[SemanticTraceResult, AgentCallMetadata]:
         ...
 
     def generate(
@@ -200,29 +187,6 @@ class PydanticSkillAgents:
             prompt=json.dumps(payload, ensure_ascii=False, indent=2),
             output_type=QualityGenerationResult,
             prompt_version=QUALITY_PROMPT_VERSION,
-        )
-
-    def generate_semantic_trace(
-        self,
-        brief: SkillBrief,
-        spec: SkillSpec,
-        ir: SkillIR,
-        provider: ModelProviderConfig,
-        feedback: list[str],
-    ) -> tuple[SemanticTraceResult, AgentCallMetadata]:
-        payload = {
-            "skillSpec": spec.model_dump(mode="json"),
-            "skillBrief": brief.model_dump(mode="json"),
-            "assembledSkillIR": ir.model_dump(mode="json"),
-            "retryFeedback": feedback,
-        }
-        return self.runtime.run_structured(
-            provider=provider,
-            role="generation",
-            instructions=SEMANTIC_TRACE_INSTRUCTIONS,
-            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
-            output_type=SemanticTraceResult,
-            prompt_version=SEMANTIC_TRACE_PROMPT_VERSION,
         )
 
     def generate(
