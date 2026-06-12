@@ -228,6 +228,13 @@ class RestrictionSpec(BaseModel):
     source: SpecItemSource
 
 
+class SpecialCaseSpec(BaseModel):
+    id: str
+    statement: str
+    source: SpecItemSource = "user"
+    required: bool = True
+
+
 class FileContract(BaseModel):
     needsReferences: bool = False
     needsScripts: bool = False
@@ -254,6 +261,7 @@ class SkillSpec(BaseModel):
     workflowStages: list[WorkflowStageSpec] = Field(default_factory=list)
     completionCriteria: str = ""
     specialCases: str = ""
+    specialCaseItems: list[SpecialCaseSpec] = Field(default_factory=list)
     incrementalKnowledge: list[str] = Field(default_factory=list)
     pitfalls: list[KnowledgePitfall] = Field(default_factory=list)
     hardRestrictions: list[str] = Field(default_factory=list)

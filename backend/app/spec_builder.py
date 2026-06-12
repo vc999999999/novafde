@@ -9,6 +9,7 @@ from app.models import (
     FileContract,
     RelatedSkillSpec,
     RestrictionSpec,
+    SpecialCaseSpec,
     SkillBrief,
     SkillIR,
     SkillSpec,
@@ -23,6 +24,27 @@ SYSTEM_BASELINE_RESTRICTIONS = [
     "不得编造缺失的用户业务事实。",
     "未通过验收条件前不得声称任务已完成。",
     "信息不足时必须报告缺口或请求用户补充。",
+]
+
+DERIVED_WORKFLOW_STAGES_ZH = [
+    "确认任务输入、适用约束和成功目标",
+    "执行请求并形成符合目标的交付结果",
+    "依据目标结果检查、修正并完成交付物",
+]
+DERIVED_WORKFLOW_STAGES_EN = [
+    "Confirm the task inputs, applicable constraints, and success target",
+    "Execute the requested work and produce the intended deliverable",
+    "Validate, refine, and complete the deliverable against the target outcome",
+]
+DERIVED_SPECIAL_CASES_ZH = [
+    "必要输入不足时，先列出缺口并请求补充，不得编造业务事实。",
+    "信息无法验证时，明确标记不确定性并说明验证方式。",
+    "请求涉及不安全或越权操作时，停止该操作并提供安全替代方案。",
+]
+DERIVED_SPECIAL_CASES_EN = [
+    "When required inputs are missing, list the gaps and request them instead of inventing business facts.",
+    "When information cannot be verified, label the uncertainty and explain how to validate it.",
+    "When a request requires unsafe or unauthorized action, stop that action and provide a safe alternative.",
 ]
 
 
@@ -169,6 +191,27 @@ def build_skill_spec(
         else f"交付结果必须实现目标：{brief.desiredOutcome}"
     )
     acceptance_source = "user" if completion else "derived"
+    workflow_statements = (
+        list(brief.roughProcess)
+        if brief.roughProcess
+        else list(
+            DERIVED_WORKFLOW_STAGES_ZH
+            if brief.outputLanguage == "zh-CN"
+            else DERIVED_WORKFLOW_STAGES_EN
+        )
+    )
+    workflow_source = "user" if brief.roughProcess else "derived"
+    if brief.specialCases.strip():
+        special_case_statements = [brief.specialCases.strip()]
+        special_case_source = "user"
+    else:
+        special_case_statements = list(
+            DERIVED_SPECIAL_CASES_ZH
+            if brief.outputLanguage == "zh-CN"
+            else DERIVED_SPECIAL_CASES_EN
+        )
+        special_case_source = "derived"
+    legacy_special_cases = "\n".join(special_case_statements)
     return SkillSpec(
         revision=revision,
         identity=SkillSpecIdentity(
@@ -185,11 +228,20 @@ def build_skill_spec(
             WorkflowStageSpec(
                 id=f"workflow.stage.{index:02d}",
                 statement=stage,
+                source=workflow_source,
             )
-            for index, stage in enumerate(brief.roughProcess, start=1)
+            for index, stage in enumerate(workflow_statements, start=1)
         ],
         completionCriteria=completion,
-        specialCases=brief.specialCases,
+        specialCases=legacy_special_cases,
+        specialCaseItems=[
+            SpecialCaseSpec(
+                id=f"special-cases.{index:02d}",
+                statement=statement,
+                source=special_case_source,
+            )
+            for index, statement in enumerate(special_case_statements, start=1)
+        ],
         incrementalKnowledge=list(brief.professionalInformation),
         pitfalls=[item.model_copy(deep=True) for item in brief.pitfalls],
         hardRestrictions=[

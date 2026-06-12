@@ -88,6 +88,56 @@ def test_skill_spec_uses_stable_ids_for_optional_derived_acceptance() -> None:
     assert spec.sourceIssueIds == ["impl-completion"]
 
 
+def test_minimal_input_derives_workflow_acceptance_and_special_cases() -> None:
+    payload = build_draft_payload()
+    payload["purpose"]["process"] = []
+    payload["purpose"]["completionCriteria"] = ""
+    payload["purpose"]["specialCases"] = ""
+    payload["knowledge"] = {
+        "professionalInformation": [],
+        "mandatoryRules": [],
+        "pitfalls": [],
+        "relatedSkills": [],
+    }
+    payload["supplement"]["content"] = ""
+    brief, validation = normalize_draft(
+        SkillDraft.model_validate(
+            {
+                **payload,
+                "id": "draft_minimal",
+                "createdAt": 1,
+                "updatedAt": 1,
+            }
+        )
+    )
+
+    spec = build_skill_spec(brief, revision=1)
+
+    process_item = next(item for item in validation if item.ruleId == "PROCESS-001")
+    assert process_item.level == "warning"
+    assert len(spec.workflowStages) == 3
+    assert all(item.source == "derived" for item in spec.workflowStages)
+    assert spec.acceptanceCriteria[0].source == "derived"
+    assert len(spec.specialCaseItems) == 3
+    assert all(item.source == "derived" for item in spec.specialCaseItems)
+    assert spec.specialCases
+
+
+def test_user_optional_fields_override_derived_defaults() -> None:
+    brief, _ = normalize_draft(_draft())
+
+    spec = build_skill_spec(brief, revision=1)
+
+    assert [item.statement for item in spec.workflowStages] == brief.roughProcess
+    assert all(item.source == "user" for item in spec.workflowStages)
+    assert spec.acceptanceCriteria[0].statement == brief.completionCriteria
+    assert spec.acceptanceCriteria[0].source == "user"
+    assert [item.statement for item in spec.specialCaseItems] == [
+        brief.specialCases
+    ]
+    assert spec.specialCaseItems[0].source == "user"
+
+
 def test_skill_spec_supplements_become_required_trace_items() -> None:
     from app.models import SupplementSpecItem
     from app.spec_builder import required_spec_trace_items
