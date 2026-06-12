@@ -17,6 +17,12 @@ from app.quality import QualityPolicy
 from app.settings import Settings
 from app.storage import Storage
 from app.spec_builder import build_skill_spec
+from app.staged_generation import (
+    KnowledgeGenerationResult,
+    QualityGenerationResult,
+    SemanticTraceResult,
+    WorkflowGenerationResult,
+)
 from app.utils import make_id, now_ms
 from tests.test_api_pipeline import build_draft_payload
 
@@ -218,6 +224,79 @@ class ScriptedAgents:
         self.repair_calls = 0
         self.activation_calls = 0
         self.implementation_calls = 0
+        self.workflow_calls = 0
+        self.knowledge_calls = 0
+        self.quality_calls = 0
+        self.trace_calls = 0
+
+    def generate_workflow(self, brief, spec, provider_config, feedback):
+        self.workflow_calls += 1
+        ir = valid_ir()
+        return (
+            WorkflowGenerationResult(
+                description=ir.skill.description,
+                overview=ir.skill.overview,
+                objective=ir.workflow.objective,
+                steps=ir.workflow.steps,
+                decisionPoints=ir.workflow.decisionPoints,
+                failureHandling=ir.workflow.failureHandling,
+                verification=ir.workflow.verification,
+                skillHandoffs=ir.workflow.skillHandoffs,
+            ),
+            metadata("generation"),
+        )
+
+    def generate_knowledge(
+        self, brief, spec, workflow, provider_config, feedback
+    ):
+        self.knowledge_calls += 1
+        ir = valid_ir()
+        return (
+            KnowledgeGenerationResult(
+                contextEngineering=ir.contextEngineering,
+                agentKnowledge=ir.agentKnowledge,
+            ),
+            metadata("generation"),
+        )
+
+    def generate_quality(
+        self, brief, spec, workflow, knowledge, provider_config, feedback
+    ):
+        self.quality_calls += 1
+        return (
+            QualityGenerationResult(
+                freedomLevel="medium",
+                softGuidance=[],
+                validationChecklist=[
+                    criterion.statement
+                    for criterion in spec.acceptanceCriteria
+                    if criterion.required
+                ],
+            ),
+            metadata("generation"),
+        )
+
+    def generate_semantic_trace(
+        self, brief, spec, ir, provider_config, feedback
+    ):
+        self.trace_calls += 1
+        source = valid_ir()
+        return (
+            SemanticTraceResult(
+                items=[
+                    {
+                        "specItemId": item.specItemId,
+                        "irPaths": item.irPaths,
+                    }
+                    for item in source.specTrace
+                    if (
+                        item.specItemId.startswith("activation.")
+                        or item.specItemId.startswith("workflow.stage.")
+                    )
+                ]
+            ),
+            metadata("generation"),
+        )
 
     def generate(self, brief, spec, provider_config):
         return valid_ir(), metadata("generation")
@@ -295,10 +374,14 @@ def setup_run(
 
 def test_render_failure_fails_with_render_failed_code(tmp_path: Path) -> None:
     class UnsafePathAgents(ScriptedAgents):
-        def generate(self, brief, spec, provider_config):
-            ir, meta = super().generate(brief, spec, provider_config)
-            ir.contextEngineering.references = ["../escape.md"]
-            return ir, meta
+        def generate_knowledge(
+            self, brief, spec, workflow, provider_config, feedback
+        ):
+            result, meta = super().generate_knowledge(
+                brief, spec, workflow, provider_config, feedback
+            )
+            result.contextEngineering.references = ["../escape.md"]
+            return result, meta
 
     agents = UnsafePathAgents(activation_scores=[4], implementation_scores=[4])
     orchestrator, storage, run_id = setup_run(tmp_path, agents)
@@ -365,10 +448,11 @@ def test_repair_receives_best_attempt_issues_after_regression(tmp_path: Path) ->
 
 def test_missing_spec_trace_blocks_candidate_before_judges(tmp_path: Path) -> None:
     class MissingTraceAgents(ScriptedAgents):
-        def generate(self, brief, spec, provider_config):
-            ir, meta = super().generate(brief, spec, provider_config)
-            ir.specTrace = []
-            return ir, meta
+        def generate_semantic_trace(
+            self, brief, spec, ir, provider_config, feedback
+        ):
+            self.trace_calls += 1
+            return SemanticTraceResult(items=[]), metadata("generation")
 
     agents = MissingTraceAgents(
         activation_scores=[4],
@@ -381,16 +465,11 @@ def test_missing_spec_trace_blocks_candidate_before_judges(tmp_path: Path) -> No
 
     assert generation is not None
     assert generation.status == "failed"
+    assert generation.failureCode == "TRACE_STAGE_FAILED"
     assert agents.activation_calls == 0
     assert agents.implementation_calls == 0
-    reports = storage.list_quality_reports(run_id)
-    assert reports
-    trace_issue = next(
-        issue
-        for issue in reports[0].issues
-        if issue.criterion == "SPEC-TRACE-001"
-    )
-    assert "workflow.stage.01" in trace_issue.specItemIds
+    assert storage.list_quality_reports(run_id) == []
+    assert agents.trace_calls == 3
 
 
 def test_orchestrator_packages_first_strict_candidate(tmp_path: Path) -> None:
@@ -613,11 +692,14 @@ class FailingPreferredProviderAgents(ScriptedAgents):
         super().__init__(activation_scores=[4], implementation_scores=[4])
         self.generation_provider_ids: list[str] = []
 
-    def generate(self, brief, spec, provider_config):
+    def generate_workflow(self, brief, spec, provider_config, feedback):
         self.generation_provider_ids.append(provider_config.id)
         if provider_config.id == "provider_primary":
             raise RuntimeError("primary unavailable")
-        return valid_ir(), metadata("generation", provider_config.id)
+        result, _meta = super().generate_workflow(
+            brief, spec, provider_config, feedback
+        )
+        return result, metadata("generation", provider_config.id)
 
 
 def test_orchestrator_falls_back_to_next_provider_without_using_repair_round(
@@ -702,7 +784,7 @@ class TokenHeavyAgents(ScriptedAgents):
         )
 
 
-def test_run_budget_stops_repairs_and_selects_checked_safe_candidate(
+def test_large_token_usage_does_not_stop_quality_repairs(
     tmp_path: Path,
 ) -> None:
     agents = TokenHeavyAgents(
@@ -717,12 +799,124 @@ def test_run_budget_stops_repairs_and_selects_checked_safe_candidate(
 
     assert generation is not None
     assert generation.status == "degraded"
-    assert generation.finalSelectionReason == "budget_limit:max_run_tokens"
-    assert agents.repair_calls == 0
-    assert any(
+    assert not (generation.finalSelectionReason or "").startswith("budget_limit:")
+    assert agents.repair_calls >= 1
+    assert not any(
         event["event"] == "budget_limit_reached"
         for event in storage.list_run_events(run_id)
     )
+
+
+def test_failed_workflow_stage_retries_only_workflow(tmp_path: Path) -> None:
+    class RetryingWorkflowAgents(ScriptedAgents):
+        def generate_workflow(self, brief, spec, provider_config, feedback):
+            result, meta = super().generate_workflow(
+                brief, spec, provider_config, feedback
+            )
+            if self.workflow_calls < 3:
+                result.steps = []
+            return result, meta
+
+    agents = RetryingWorkflowAgents(
+        activation_scores=[4],
+        implementation_scores=[4],
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "succeeded"
+    assert agents.workflow_calls == 3
+    assert agents.knowledge_calls == 1
+    assert agents.quality_calls == 1
+    assert agents.trace_calls == 1
+    workflow_attempts = [
+        item for item in generation.stageAttempts if item.stage == "workflow"
+    ]
+    assert [item.status for item in workflow_attempts] == [
+        "failed",
+        "failed",
+        "succeeded",
+    ]
+
+
+def test_completed_workflow_is_not_regenerated_when_knowledge_retries(
+    tmp_path: Path,
+) -> None:
+    class RetryingKnowledgeAgents(ScriptedAgents):
+        def generate_knowledge(
+            self, brief, spec, workflow, provider_config, feedback
+        ):
+            result, meta = super().generate_knowledge(
+                brief, spec, workflow, provider_config, feedback
+            )
+            if self.knowledge_calls == 1:
+                result.contextEngineering.references = []
+                result.contextEngineering.referenceFiles = []
+            return result, meta
+
+    agents = RetryingKnowledgeAgents(
+        activation_scores=[4],
+        implementation_scores=[4],
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "succeeded"
+    assert agents.workflow_calls == 1
+    assert agents.knowledge_calls == 2
+
+
+def test_stage_failure_never_creates_candidate_or_package(tmp_path: Path) -> None:
+    class BrokenWorkflowAgents(ScriptedAgents):
+        def generate_workflow(self, brief, spec, provider_config, feedback):
+            result, meta = super().generate_workflow(
+                brief, spec, provider_config, feedback
+            )
+            result.steps = []
+            return result, meta
+
+    agents = BrokenWorkflowAgents(
+        activation_scores=[4],
+        implementation_scores=[4],
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+
+    orchestrator.run(run_id)
+    generation = storage.get_generation(run_id)
+
+    assert generation is not None
+    assert generation.status == "failed"
+    assert generation.failureCode == "WORKFLOW_STAGE_FAILED"
+    assert agents.workflow_calls == 3
+    assert storage.list_attempts(run_id) == []
+    assert generation.zipPath is None
+
+
+def test_cancel_request_interrupts_before_first_model_stage(tmp_path: Path) -> None:
+    agents = ScriptedAgents(
+        activation_scores=[4],
+        implementation_scores=[4],
+    )
+    orchestrator, storage, run_id = setup_run(tmp_path, agents)
+    generation = storage.get_generation(run_id)
+    assert generation is not None
+    generation.cancelRequested = True
+    storage.save_generation(generation)
+
+    orchestrator.run(run_id)
+    cancelled = storage.get_generation(run_id)
+
+    assert cancelled is not None
+    assert cancelled.status == "interrupted"
+    assert cancelled.failureCode == "USER_CANCELLED"
+    assert agents.workflow_calls == 0
+    assert storage.list_attempts(run_id) == []
 
 
 def test_user_skip_does_not_prompt_same_issue_twice(tmp_path: Path) -> None:

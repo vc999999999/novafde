@@ -5,6 +5,7 @@ from app.state_machine import assert_generation_transition
 
 def test_state_machine_allows_defined_quality_loop_transitions() -> None:
     assert_generation_transition("queued", "normalizing")
+    assert_generation_transition("normalizing", "interrupted")
     assert_generation_transition("aggregating_scores", "repairing_round_1")
     assert_generation_transition("awaiting_user_input", "repairing_round_1")
     assert_generation_transition("packaging_low_score", "degraded")

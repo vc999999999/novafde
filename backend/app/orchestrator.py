@@ -14,6 +14,7 @@ from app.models import (
     AgentCallMetadata,
     GenerationAttempt,
     GenerationResult,
+    GenerationStageAttempt,
     ModelProviderConfig,
     QualityEvaluationReport,
     QualityIssue,
@@ -34,11 +35,27 @@ from app.packager import (
     write_quality_report,
     write_validation_report,
 )
-from app.prompts import GENERATION_PROMPT_VERSION
+from app.prompts import (
+    KNOWLEDGE_PROMPT_VERSION,
+    QUALITY_PROMPT_VERSION,
+    SEMANTIC_TRACE_PROMPT_VERSION,
+    WORKFLOW_PROMPT_VERSION,
+)
 from app.quality import QualityPolicy, aggregate_quality_report, select_best_attempt
 from app.renderer import build_file_tree, render_skill_package
 from app.settings import Settings
 from app.spec_builder import build_skill_spec, enforce_spec_contract
+from app.staged_generation import (
+    KnowledgeGenerationResult,
+    QualityGenerationResult,
+    SemanticTraceResult,
+    WorkflowGenerationResult,
+    assemble_skill_ir,
+    validate_knowledge_result,
+    validate_quality_result,
+    validate_semantic_trace_result,
+    validate_workflow_result,
+)
 from app.state_machine import assert_generation_transition
 from app.storage import Storage
 from app.utils import (
@@ -61,6 +78,23 @@ class CandidateRenderError(RuntimeError):
     """
 
     failure_code = "RENDER_FAILED"
+
+
+class StageGenerationError(RuntimeError):
+    def __init__(self, stage: str, errors: list[str]) -> None:
+        super().__init__("；".join(errors))
+        self.stage = stage
+        self.errors = errors
+
+
+class UserCancelledError(RuntimeError):
+    pass
+
+
+STAGED_GENERATION_PROMPT_VERSION = (
+    f"{WORKFLOW_PROMPT_VERSION}+{KNOWLEDGE_PROMPT_VERSION}+"
+    f"{QUALITY_PROMPT_VERSION}+{SEMANTIC_TRACE_PROMPT_VERSION}"
+)
 
 
 class QualityOrchestrator:
@@ -89,7 +123,7 @@ class QualityOrchestrator:
         if generation.targetPlatformsOverride:
             brief.targetPlatforms = list(generation.targetPlatformsOverride)
         generation.normalizedBrief = brief.model_dump(mode="json")
-        generation.promptBundleVersion = GENERATION_PROMPT_VERSION
+        generation.promptBundleVersion = STAGED_GENERATION_PROMPT_VERSION
         generation.qualityPolicyVersion = self.policy.version
         spec = build_skill_spec(brief, revision=1)
         self._append_skill_spec(
@@ -107,6 +141,9 @@ class QualityOrchestrator:
                 "BRIEF_VALIDATION_FAILED",
                 "生成输入存在阻塞问题，请补充草稿后重试。",
             )
+
+        if self._cancel_requested(generation.id):
+            return self._interrupt(generation)
 
         generation_provider = self._provider_for("generation")
         if generation_provider is None:
@@ -131,24 +168,25 @@ class QualityOrchestrator:
                 "缺少启用的 generation Model Provider。",
             )
 
-        self._transition(
-            generation,
-            "generating_initial_ir",
-            "generating-ir",
-            15,
-            provider=generation_provider,
-        )
         try:
-            (ir, metadata), generation_provider = self._call_with_provider_fallback(
+            ir, generation_calls = self._generate_staged_ir(
                 generation,
-                "generation",
-                lambda provider: self.agents.generate(brief, spec, provider),
+                brief,
+                spec,
+            )
+        except UserCancelledError:
+            return self._interrupt(generation)
+        except StageGenerationError as exc:
+            return self._fail(
+                generation,
+                f"{exc.stage.upper()}_STAGE_FAILED",
+                f"{exc.stage} 阶段生成失败：{exc}",
             )
         except Exception as exc:
             return self._fail(
                 generation,
                 "GENERATION_MODEL_FAILED",
-                f"模型生成 SkillIR 失败：{exc}",
+                f"分阶段生成 SkillIR 失败：{exc}",
             )
         return self._process_candidates(
             generation=generation,
@@ -159,7 +197,7 @@ class QualityOrchestrator:
             start_round=0,
             parent_attempt_id=None,
             changed_paths=[],
-            pending_agent_calls=[metadata],
+            pending_agent_calls=generation_calls,
             input_issue_ids=[],
         )
 
@@ -351,6 +389,8 @@ class QualityOrchestrator:
     ) -> GenerationResult:
         round_number = start_round
         while True:
+            if self._cancel_requested(generation.id):
+                return self._interrupt(generation)
             try:
                 attempt, report, validation_items = self._evaluate_candidate(
                     generation=generation,
@@ -385,26 +425,12 @@ class QualityOrchestrator:
             generation.currentRound = round_number
             self._refresh_best_attempt(generation)
             self.storage.save_generation(generation)
+            if self._cancel_requested(generation.id):
+                return self._interrupt(generation)
 
             if report.passedStrictGate:
                 generation.finalSelectionReason = "strict_quality_gate_passed"
                 return self._finalize(generation, attempt, report, degraded=False)
-
-            budget_limit = self._budget_limit_reason(generation)
-            if budget_limit is not None:
-                generation.finalSelectionReason = f"budget_limit:{budget_limit}"
-                self.storage.add_run_event(
-                    generation.id,
-                    "budget_limit_reached",
-                    {"limit": budget_limit},
-                    now_ms(),
-                )
-                attempts = self.storage.list_attempts(generation.id)
-                reports = {
-                    item.attemptId: item
-                    for item in self.storage.list_quality_reports(generation.id)
-                }
-                return self._finalize_best(generation, attempts, reports)
 
             questions = self._new_user_questions(generation, report)
             if questions and round_number < generation.maxRepairRounds:
@@ -501,6 +527,8 @@ class QualityOrchestrator:
                     code="REPAIR_MODEL_FAILED",
                     message=f"模型修复失败：{exc}",
                 )
+            if self._cancel_requested(generation.id):
+                return self._interrupt(generation)
             parent_attempt_id = generation.bestAttemptId or attempt.id
             current_ir = repaired.skillIR
             changed_paths = repaired.changedPaths
@@ -976,27 +1004,6 @@ class QualityOrchestrator:
         )
         return self._finalize_best(generation, attempts, reports)
 
-    def _budget_limit_reason(
-        self,
-        generation: GenerationResult,
-    ) -> str | None:
-        attempts = self.storage.list_attempts(generation.id)
-        calls = [
-            call
-            for attempt in attempts
-            for call in attempt.agentCalls
-        ]
-        total_tokens = sum(call.inputTokens + call.outputTokens for call in calls)
-        if total_tokens >= self.settings.max_run_tokens:
-            return "max_run_tokens"
-        total_cost = sum(call.estimatedCostUsd or 0 for call in calls)
-        if total_cost >= self.settings.max_run_cost_usd:
-            return "max_run_cost_usd"
-        elapsed_ms = now_ms() - generation.startedAt
-        if elapsed_ms >= self.settings.max_run_duration_seconds * 1000:
-            return "max_run_duration_seconds"
-        return None
-
     def _best_attempt(self, run_id: str) -> GenerationAttempt | None:
         attempts = self.storage.list_attempts(run_id)
         reports = {
@@ -1178,6 +1185,197 @@ class QualityOrchestrator:
         if generation is None:
             raise ValueError("Generation not found")
         return generation
+
+    def _generate_staged_ir(
+        self,
+        generation: GenerationResult,
+        brief: SkillBrief,
+        spec: SkillSpec,
+    ) -> tuple[SkillIR, list[AgentCallMetadata]]:
+        calls: list[AgentCallMetadata] = []
+
+        workflow, metadata = self._run_generation_stage(
+            generation,
+            stage="workflow",
+            current_stage="generating-workflow",
+            progress=10,
+            message="正在构建工作流骨架",
+            call=lambda provider, feedback: self.agents.generate_workflow(
+                brief, spec, provider, feedback
+            ),
+            validate=lambda result: validate_workflow_result(result, spec),
+        )
+        calls.append(metadata)
+
+        knowledge, metadata = self._run_generation_stage(
+            generation,
+            stage="knowledge",
+            current_stage="generating-knowledge",
+            progress=28,
+            message="正在生成知识与文件",
+            call=lambda provider, feedback: self.agents.generate_knowledge(
+                brief, spec, workflow, provider, feedback
+            ),
+            validate=lambda result: validate_knowledge_result(result, spec),
+        )
+        calls.append(metadata)
+
+        quality, metadata = self._run_generation_stage(
+            generation,
+            stage="quality",
+            current_stage="generating-quality",
+            progress=46,
+            message="正在生成规则与验收控制",
+            call=lambda provider, feedback: self.agents.generate_quality(
+                brief, spec, workflow, knowledge, provider, feedback
+            ),
+            validate=lambda result: validate_quality_result(result, spec),
+        )
+        calls.append(metadata)
+
+        preliminary_ir = assemble_skill_ir(
+            brief,
+            spec,
+            workflow,
+            knowledge,
+            quality,
+            SemanticTraceResult(),
+        )
+        semantic_trace, metadata = self._run_generation_stage(
+            generation,
+            stage="trace",
+            current_stage="generating-trace",
+            progress=58,
+            message="正在建立语义规格映射",
+            call=lambda provider, feedback: self.agents.generate_semantic_trace(
+                brief, spec, preliminary_ir, provider, feedback
+            ),
+            validate=lambda result: validate_semantic_trace_result(
+                result, spec, preliminary_ir
+            ),
+        )
+        calls.append(metadata)
+        return (
+            assemble_skill_ir(
+                brief,
+                spec,
+                workflow,
+                knowledge,
+                quality,
+                semantic_trace,
+            ),
+            calls,
+        )
+
+    def _run_generation_stage(
+        self,
+        generation: GenerationResult,
+        *,
+        stage: str,
+        current_stage: str,
+        progress: int,
+        message: str,
+        call: Any,
+        validate: Any,
+    ) -> tuple[Any, AgentCallMetadata]:
+        feedback: list[str] = []
+        last_errors: list[str] = []
+        for attempt_number in range(1, generation.stageMaxAttempts + 1):
+            if self._cancel_requested(generation.id):
+                raise UserCancelledError()
+            generation.stageAttempt = attempt_number
+            generation.stageMessage = message
+            self._transition(
+                generation,
+                "generating_initial_ir",
+                current_stage,
+                progress,
+            )
+            started_at = now_ms()
+            result: Any = None
+            metadata: AgentCallMetadata | None = None
+            provider: ModelProviderConfig | None = None
+            try:
+                (result, metadata), provider = self._call_with_provider_fallback(
+                    generation,
+                    "generation",
+                    lambda selected: call(selected, feedback),
+                )
+                last_errors = list(validate(result))
+            except Exception as exc:
+                last_errors = [str(exc)]
+            completed_at = now_ms()
+            stage_attempt = GenerationStageAttempt(
+                stage=stage,
+                attempt=attempt_number,
+                status="failed" if last_errors else "succeeded",
+                errors=last_errors,
+                result=(
+                    result.model_dump(mode="json")
+                    if result is not None
+                    else {}
+                ),
+                providerId=provider.id if provider else (
+                    metadata.providerId if metadata else None
+                ),
+                modelName=metadata.model if metadata else None,
+                promptVersion=metadata.promptVersion if metadata else "",
+                inputTokens=metadata.inputTokens if metadata else 0,
+                outputTokens=metadata.outputTokens if metadata else 0,
+                durationMs=(
+                    metadata.durationMs
+                    if metadata
+                    else max(0, completed_at - started_at)
+                ),
+                startedAt=started_at,
+                completedAt=completed_at,
+            )
+            generation.stageAttempts.append(stage_attempt)
+            self.storage.add_run_event(
+                generation.id,
+                "generation_stage_attempt",
+                stage_attempt.model_dump(mode="json"),
+                completed_at,
+            )
+            if not last_errors and result is not None and metadata is not None:
+                if stage not in generation.completedStages:
+                    generation.completedStages.append(stage)
+                generation.stageMessage = f"{message}已完成"
+                self.storage.save_generation(generation)
+                if self._cancel_requested(generation.id):
+                    raise UserCancelledError()
+                return result, metadata
+            feedback = last_errors
+            generation.stageMessage = (
+                f"{message}未通过检查，准备第 {attempt_number + 1} 次尝试"
+                if attempt_number < generation.stageMaxAttempts
+                else f"{message}失败"
+            )
+            self.storage.save_generation(generation)
+        raise StageGenerationError(stage, last_errors)
+
+    def _cancel_requested(self, run_id: str) -> bool:
+        current = self.storage.get_generation(run_id)
+        return bool(current and current.cancelRequested)
+
+    def _interrupt(self, generation: GenerationResult) -> GenerationResult:
+        current = self.storage.get_generation(generation.id)
+        if current is not None:
+            generation.cancelRequested = current.cancelRequested
+        assert_generation_transition(generation.status, "interrupted")
+        generation.status = "interrupted"
+        generation.currentStage = None
+        generation.completedAt = now_ms()
+        generation.failureCode = "USER_CANCELLED"
+        generation.errorMessage = "用户已停止生成。"
+        generation.stageMessage = "生成已停止"
+        self.storage.add_run_event(
+            generation.id,
+            "cancelled",
+            {"stage": generation.currentStage, "attempt": generation.stageAttempt},
+            generation.completedAt,
+        )
+        return self.storage.save_generation(generation)
 
     def _append_skill_spec(
         self,

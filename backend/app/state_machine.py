@@ -67,7 +67,7 @@ def assert_generation_transition(
     if current == target:
         _LOG.debug("Same-state transition: %s -> %s", current, target)
         return
-    if target == "failed" and current not in TERMINAL_STATUSES:
+    if target in {"failed", "interrupted"} and current not in TERMINAL_STATUSES:
         return
     if target not in _ALLOWED.get(current, set()):
         raise ValueError(f"Invalid generation transition: {current} -> {target}")
