@@ -4,38 +4,38 @@
    Theme Tokens — map original design system to Tailwind/shadcn
    ============================================================ */
 @theme {
-  /* Colors — cool-tinted dark, layered elevation (bg → panel → surface → surface-up) */
-  --color-bg: #08080b;
-  --color-panel: #0d0d12;
-  --color-panel-border: rgba(255, 255, 255, 0.08);
-  --color-panel-hover: rgba(255, 255, 255, 0.16);
-  --color-surface: rgba(255, 255, 255, 0.035);
-  --color-surface-up: rgba(255, 255, 255, 0.065);
-  --color-text: #f4f5f8;
-  --color-text-secondary: rgba(235, 238, 248, 0.62);
-  --color-text-tertiary: rgba(235, 238, 248, 0.36);
-  --color-accent: #6c9cff;
-  --color-accent-dim: rgba(108, 156, 255, 0.12);
-  --color-accent-border: rgba(108, 156, 255, 0.3);
-  --color-success: #4ade80;
-  --color-success-dim: rgba(74, 222, 128, 0.08);
-  --color-success-border: rgba(74, 222, 128, 0.25);
-  --color-warning: #facc15;
-  --color-warning-dim: rgba(250, 204, 21, 0.08);
-  --color-warning-border: rgba(250, 204, 21, 0.25);
-  --color-error: #f87171;
-  --color-error-dim: rgba(248, 113, 113, 0.08);
-  --color-error-border: rgba(248, 113, 113, 0.25);
+  /* Colors — light theme, clean and professional (Medium-style) */
+  --color-bg: #ffffff;
+  --color-panel: #fafafa;
+  --color-panel-border: rgba(0, 0, 0, 0.08);
+  --color-panel-hover: rgba(0, 0, 0, 0.12);
+  --color-surface: rgba(0, 0, 0, 0.03);
+  --color-surface-up: rgba(0, 0, 0, 0.05);
+  --color-text: #1a1a1a;
+  --color-text-secondary: rgba(26, 26, 26, 0.65);
+  --color-text-tertiary: rgba(26, 26, 26, 0.45);
+  --color-accent: #dc2626;
+  --color-accent-dim: rgba(220, 38, 38, 0.1);
+  --color-accent-border: rgba(220, 38, 38, 0.25);
+  --color-success: #16a34a;
+  --color-success-dim: rgba(22, 163, 74, 0.08);
+  --color-success-border: rgba(22, 163, 74, 0.2);
+  --color-warning: #d97706;
+  --color-warning-dim: rgba(217, 119, 6, 0.08);
+  --color-warning-border: rgba(217, 119, 6, 0.2);
+  --color-error: #b91c1c;
+  --color-error-dim: rgba(185, 28, 28, 0.08);
+  --color-error-border: rgba(185, 28, 28, 0.25);
 
-  /* Override shadcn color variables to match our dark theme */
+  /* Override shadcn color variables to match our light theme */
   --color-background: var(--color-bg);
   --color-foreground: var(--color-text);
   --color-card: var(--color-panel);
   --color-card-foreground: var(--color-text);
-  --color-popover: var(--color-panel);
+  --color-popover: #ffffff;
   --color-popover-foreground: var(--color-text);
   --color-primary: var(--color-accent);
-  --color-primary-foreground: #000;
+  --color-primary-foreground: #ffffff;
   --color-secondary: var(--color-surface);
   --color-secondary-foreground: var(--color-text);
   --color-muted: var(--color-surface);
@@ -43,27 +43,27 @@
   --color-accent-shadcn: var(--color-accent-dim);
   --color-accent-foreground: var(--color-accent);
   --color-destructive: var(--color-error);
-  --color-destructive-foreground: #fff;
+  --color-destructive-foreground: #ffffff;
   --color-border: var(--color-panel-border);
-  --color-input: rgba(255, 255, 255, 0.1);
+  --color-input: rgba(0, 0, 0, 0.1);
   --color-ring: var(--color-accent);
 
   /* Border radius */
-  --radius-xs: 8px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-xl: 20px;
+  --radius-xs: 10px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
   --radius-full: 999px;
   --radius: var(--radius-md);
 
-  /* Shadows — blue-tinted, single top-left light source, inner top edge highlight */
-  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(4, 8, 20, 0.35);
+  /* Shadows — soft and subtle for light theme */
+  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-md:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 2px rgba(2, 4, 12, 0.5),
-    0 24px 60px rgba(4, 8, 22, 0.45);
-  --shadow-glow: 0 0 0 1px rgba(108, 156, 255, 0.22), 0 8px 32px rgba(108, 156, 255, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 0 1px rgba(220, 38, 38, 0.15), 0 4px 16px rgba(220, 38, 38, 0.1);
 
   /* Fonts */
   --font-sans: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
@@ -122,8 +122,7 @@
     font-size: var(--text-base);
     line-height: var(--leading-normal);
     background:
-      radial-gradient(ellipse 80% 40% at 50% -8%, rgba(108, 156, 255, 0.09), transparent 60%),
-      radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 28%),
+      radial-gradient(ellipse 80% 40% at 50% -8%, rgba(220, 38, 38, 0.04), transparent 60%),
       var(--color-bg);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
@@ -136,10 +135,10 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    opacity: 0.035;
+    opacity: 0.02;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
-  ::selection { background: rgba(108, 156, 255, 0.32); color: #fff; }
+  ::selection { background: rgba(220, 38, 38, 0.15); color: #1a1a1a; }
   body.modal-open { overflow: hidden; }
   #root { min-height: 100dvh; display: flex; flex-direction: column; position: relative; z-index: 1; }
   .font-mono, code, pre, [data-numeric] { font-variant-numeric: tabular-nums; }
@@ -151,13 +150,13 @@
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
+::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
 
 /* Custom keyframes */
 @keyframes pulse-shadow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(108, 156, 255, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(108, 156, 255, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
 }
 @keyframes step-in {
   from { opacity: 0; transform: translateY(10px); }
@@ -184,28 +183,11 @@
 }
 
 /* ============================================================
-   Card surface — gradient top-lit edge + cursor spotlight
-   (driven by --mx/--my set from a delegated mousemove listener)
+   Card surface — subtle top gradient for depth
    ============================================================ */
 [data-slot="card"] {
   position: relative;
-  background-image: linear-gradient(170deg, rgba(255, 255, 255, 0.035), transparent 32%);
 }
-[data-slot="card"]::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-  background: radial-gradient(
-    300px circle at var(--mx, 50%) var(--my, 0%),
-    rgba(108, 156, 255, 0.08),
-    transparent 65%
-  );
-}
-[data-slot="card"]:hover::after { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
