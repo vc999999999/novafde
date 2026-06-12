@@ -17,7 +17,9 @@ export default function PipelineProgress({
   completedStages = [],
   isFailed,
 }: Props) {
-  const stageIdx = currentStage ? STAGES.findIndex((item) => item.stage === currentStage) : -1;
+  const stageIdx = currentStage
+    ? STAGES.findIndex((item) => item.stages.includes(currentStage))
+    : -1;
 
   return (
     <div>
@@ -36,7 +38,14 @@ export default function PipelineProgress({
       />
       <div className="flex flex-col">
         {STAGES.map((stage, i) => {
-          const isCompleted = completedStages.includes(stage.key) || progress >= 100;
+          const stageCompletion = (
+            stage.key === 'workflow'
+              ? completedStages.includes('workflow')
+              : stage.key === 'quality'
+                ? completedStages.includes('knowledge') && completedStages.includes('quality')
+                : false
+          );
+          const isCompleted = progress >= 100 || i < stageIdx || stageCompletion;
           const isActive = i === stageIdx && !isFailed;
           const isFailedStage = isFailed && i === stageIdx;
 

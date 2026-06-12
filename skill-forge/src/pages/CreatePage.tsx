@@ -44,7 +44,7 @@ const TERMINAL_STATUSES = new Set(['succeeded', 'degraded', 'interrupted', 'fail
 
 const STEP_DESCRIPTIONS: Record<number, string> = {
   0: '填写 Skill 名称并选择目标平台',
-  1: '说明使用时机、目标结果和大致流程；完成标准可选',
+  1: '只需说明使用时机和目标结果，其余由 Agent 自动补全',
   2: '本步全部可选：补充专业信息、强制规则、常见错误和协同 Skill 能提升生成质量',
   3: '自由补充背景或偏好，也可以直接留空',
 };

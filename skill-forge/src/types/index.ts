@@ -70,6 +70,12 @@ export interface PurposeInfo {
   process: string[];
   completionCriteria: string;
   specialCases: string;
+  specialCaseItems?: Array<{
+    id: string;
+    statement: string;
+    source: SpecItemSource;
+    required: boolean;
+  }>;
 }
 
 export interface KnowledgePitfall {

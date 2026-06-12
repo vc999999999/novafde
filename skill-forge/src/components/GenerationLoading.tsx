@@ -11,7 +11,7 @@ const STAGE_HEADLINES: Partial<Record<GenerationStage, string>> = {
   'generating-workflow': '正在构建工作流骨架',
   'generating-knowledge': '正在补全知识与文件',
   'generating-quality': '正在建立质量约束',
-  'generating-trace': '正在核对规格证据链',
+  'generating-trace': '正在检查并准备打包',
   'injecting-rules': '正在注入质量规则',
   'splitting-workflow': '正在拆分工作流',
   'generating-ir': '正在生成初始工作流',

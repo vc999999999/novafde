@@ -1,13 +1,52 @@
-import type { SkillDraft } from '../types';
+import type { GenerationStage, SkillDraft } from '../types';
 
 let idCounter = 100;
 const uid = () => `draft_${Date.now()}_${++idCounter}`;
 
-export const STAGES = [
-  { key: 'workflow' as const, stage: 'generating-workflow' as const, label: '工作流骨架', sub: '步骤、输入输出、验证与失败处理' },
-  { key: 'knowledge' as const, stage: 'generating-knowledge' as const, label: '知识与文件', sub: '专业知识、引用材料与依赖文件' },
-  { key: 'quality' as const, stage: 'generating-quality' as const, label: '质量约束', sub: '硬限制、验收标准与检查清单' },
-  { key: 'trace' as const, stage: 'generating-trace' as const, label: '规格映射', sub: '逐项建立 SkillSpec 到输出的证据链' },
+interface ProductStage {
+  key: 'requirements' | 'workflow' | 'quality' | 'package';
+  stages: GenerationStage[];
+  label: string;
+  sub: string;
+}
+
+export const STAGES: ProductStage[] = [
+  {
+    key: 'requirements',
+    stages: ['queued', 'normalizing', 'injecting-rules'],
+    label: '理解需求',
+    sub: '整理必要输入并补全标准规格',
+  },
+  {
+    key: 'workflow',
+    stages: ['generating-workflow', 'splitting-workflow', 'generating-ir', 'validating-schema'],
+    label: '构建工作流',
+    sub: '设计步骤、输入输出、校验和失败处理',
+  },
+  {
+    key: 'quality',
+    stages: ['generating-knowledge', 'generating-quality'],
+    label: '补全知识与质量',
+    sub: '补充专业知识、约束和验收标准',
+  },
+  {
+    key: 'package',
+    stages: [
+      'generating-trace',
+      'rendering-files',
+      'running-validation-checks',
+      'evaluating-activation',
+      'evaluating-implementation',
+      'aggregating-scores',
+      'repairing',
+      'awaiting-user-input',
+      'selecting-best-candidate',
+      'quality-gate',
+      'packaging',
+    ],
+    label: '检查与打包',
+    sub: '持续评测优化，选择最佳版本并生成文件',
+  },
 ];
 
 export function createBlankDraft(): SkillDraft {
@@ -68,9 +107,8 @@ export const STEP_COMPLETION_WEIGHTS: Record<StepKey, (draft: SkillDraft) => num
   },
   purpose: (draft) => {
     let score = 0;
-    if (draft.purpose.usage.trim()) score += 30;
-    if (draft.purpose.desiredOutcome.trim()) score += 30;
-    if (draft.purpose.process.some((item) => item.trim())) score += 40;
+    if (draft.purpose.usage.trim()) score += 50;
+    if (draft.purpose.desiredOutcome.trim()) score += 50;
     return score;
   },
   // 知识步骤全部为可选推荐项，不计入必填完成度。

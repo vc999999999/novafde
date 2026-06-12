@@ -38,6 +38,11 @@ test('renders staged attempt details and lets the user stop generation', async (
   expect(screen.getByText('正在构建工作流骨架')).toBeInTheDocument();
   expect(screen.getByText('第 2/3 次尝试')).toBeInTheDocument();
   expect(screen.getByText('质量优先，不限制单次任务总预算与总时长')).toBeInTheDocument();
+  expect(screen.getByText('理解需求')).toBeInTheDocument();
+  expect(screen.getByText('构建工作流')).toBeInTheDocument();
+  expect(screen.getByText('补全知识与质量')).toBeInTheDocument();
+  expect(screen.getByText('检查与打包')).toBeInTheDocument();
+  expect(screen.queryByText('规格映射')).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: '停止生成' }));
   expect(onCancel).toHaveBeenCalledOnce();
