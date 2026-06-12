@@ -286,7 +286,7 @@ def build_skill_spec(
     )
 
 
-_PACKAGE_DIRS = {"references", "scripts", "assets", "install"}
+_PACKAGE_DIRS = {"references", "scripts", "assets", "agents"}
 
 
 def _normalize_rendered_path(path: str, skill_name: str) -> str:

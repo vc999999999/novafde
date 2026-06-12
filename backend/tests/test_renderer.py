@@ -91,6 +91,7 @@ def test_skill_md_keeps_description_in_frontmatter_only(tmp_path) -> None:
     body = skill_md.split("---\n", 2)[2]
     assert "## When to Use" not in skill_md
     assert ir.skill.description not in body
+    assert "`install/`" not in skill_md
 
 
 def test_skill_md_omits_empty_optional_sections(tmp_path) -> None:

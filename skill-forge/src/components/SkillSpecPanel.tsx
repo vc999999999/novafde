@@ -41,12 +41,15 @@ export default function SkillSpecPanel({
   response,
   unavailable = false,
   compact = false,
+  defaultOpen = false,
   error = null,
   className,
 }: {
   response: SkillSpecResponse | null;
   unavailable?: boolean;
+  /** 紧凑模式：内容区限高滚动，默认折叠（可用 defaultOpen 覆盖展开状态） */
   compact?: boolean;
+  defaultOpen?: boolean;
   error?: string | null;
   className?: string;
 }) {
@@ -81,7 +84,7 @@ export default function SkillSpecPanel({
 
   return (
     <Card className={cn('border-accent-border bg-panel p-4 shadow-md', className)}>
-      <details open={!compact}>
+      <details open={defaultOpen || !compact}>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -94,7 +97,7 @@ export default function SkillSpecPanel({
           </span>
         </summary>
 
-        <div className={cn('mt-4 space-y-3', compact && 'max-h-[55vh] overflow-auto pr-1')}>
+        <div className={cn('mt-4 space-y-3', compact && !defaultOpen && 'max-h-[55vh] overflow-auto pr-1')}>
           <Section title="触发契约">
             <p className="text-xs leading-relaxed">{spec.activationContract.usage}</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

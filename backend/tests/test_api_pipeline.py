@@ -130,7 +130,7 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     assert generation["skillSpecRevision"] == 1
     assert len(generation["skillSpecSha256"]) == 64
     assert generation["downloadInfo"]["packageName"] == "product-research-package.zip"
-    assert generation["downloadInfo"]["fileCount"] >= 5
+    assert generation["downloadInfo"]["fileCount"] >= 2
 
     preview_response = client.get(f"/api/generations/{generation['id']}/preview")
     assert preview_response.status_code == 200
@@ -155,11 +155,16 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     with ZipFile(BytesIO(download_response.content)) as zip_file:
         names = zip_file.namelist()
         assert "product-research/SKILL.md" in names
-        assert "install/claude-code.md" in names
-        assert "install/codex.md" in names
-        assert "install/hermes-openclaw.md" in names
-        assert "validation-report.json" in names
-        assert "package-manifest.json" in names
+        assert all(
+            name == "product-research/" or name.startswith("product-research/")
+            for name in names
+        )
+        assert not any(name.startswith("install/") for name in names)
+        assert "validation-report.json" not in names
+        assert "package-manifest.json" not in names
+        assert "skillforge-manifest.json" not in names
+        assert "quality-report.json" not in names
+        assert "QUALITY_REPORT.md" not in names
         assert all(not name.startswith("/") and ".." not in Path(name).parts for name in names)
 
         skill_md = zip_file.read("product-research/SKILL.md").decode("utf-8")
@@ -174,22 +179,6 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         assert "不得把供应商自述直接当作第三方事实" in reference
         assert "web-research" in reference
         assert "报告表达尽量简洁" in reference
-        manifest = json.loads(
-            zip_file.read("package-manifest.json").decode("utf-8")
-        )
-        versions = manifest["versions"]
-        assert versions["creatorSkillVersion"] == "1.1.0"
-        assert len(versions["creatorSkillSha256"]) == 64
-        assert (
-            versions["generationPromptVersion"]
-            == "generation-v3.5-output-spec"
-        )
-        assert versions["skillSpecSchemaVersion"] == "1.0"
-        assert versions["skillSpecRevision"] == 1
-        assert versions["skillSpecSha256"] == generation["skillSpecSha256"]
-        assert versions["agentSkillsValidatorVersion"] == "0.1.1"
-        assert versions["rendererVersion"]
-        assert versions["validationRuleSetVersion"]
 
 
 def test_install_copies_skill_into_target_dir(tmp_path: Path) -> None:

@@ -137,6 +137,22 @@ def validate_ir(ir: SkillIR) -> list[ValidationItem]:
                 field="quality.hardRestrictions",
             )
         )
+
+    resource_path_errors = _resource_path_errors(ir)
+    if resource_path_errors:
+        items.append(
+            ValidationItem(
+                id="ir-resource-paths",
+                ruleId="PKG-005",
+                level="blocking",
+                title="资源路径不符合 Agent Skills 目录规范",
+                description="；".join(resource_path_errors),
+                importance="资源必须位于 Skill 目录内的 references/、scripts/ 或 assets/，否则最终包结构会混乱。",
+                suggestion="将知识文件放入 references/，脚本放入 scripts/，资产放入 assets/。",
+                blocksDownload=True,
+                field="contextEngineering",
+            )
+        )
     return items
 
 
@@ -144,6 +160,24 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
     items: list[ValidationItem] = []
     skill_dir = package_root / ir.skill.name
     skill_md_path = skill_dir / "SKILL.md"
+    root_entry_errors = _non_skill_root_entries(package_root, ir.skill.name)
+    if root_entry_errors:
+        items.append(
+            ValidationItem(
+                id="pkg-canonical-root",
+                ruleId="PKG-004",
+                level="blocking",
+                title="包根目录包含非 Skill 条目",
+                description=(
+                    "最终 Agent Skill 包顶层只能包含一个与 frontmatter.name "
+                    f"一致的 Skill 目录；发现多余条目：{', '.join(root_entry_errors)}。"
+                ),
+                importance="Agent Skills 规范以 Skill 文件夹为安装单元，运行时元数据不能混入用户下载包根。",
+                suggestion="仅打包 <skill-name>/ 目录；将 manifest、校验报告和安装说明保存在包外元数据目录。",
+                blocksDownload=True,
+                field="package_root",
+            )
+        )
 
     if not skill_md_path.exists():
         items.append(
@@ -266,6 +300,41 @@ def validate_rendered_package(package_root: Path, ir: SkillIR) -> list[Validatio
         )
     items.extend(validate_official_agent_skill(package_root, ir))
     return items
+
+
+def _non_skill_root_entries(package_root: Path, skill_name: str) -> list[str]:
+    if not package_root.exists():
+        return []
+    errors: list[str] = []
+    for entry in sorted(package_root.iterdir(), key=lambda item: item.name):
+        if entry.name == skill_name and entry.is_dir():
+            continue
+        errors.append(entry.name)
+    return errors
+
+
+def _resource_path_errors(ir: SkillIR) -> list[str]:
+    errors: list[str] = []
+
+    def check(paths: list[str], prefix: str, field: str) -> None:
+        for raw_path in paths:
+            try:
+                safe_path = ensure_safe_relative_path(raw_path)
+            except ValueError:
+                errors.append(f"{field} 包含不安全路径：{raw_path}")
+                continue
+            if safe_path == prefix.rstrip("/") or not safe_path.startswith(prefix):
+                errors.append(f"{field} 必须位于 {prefix} 下：{safe_path}")
+
+    check(ir.contextEngineering.references, "references/", "references")
+    check(
+        [item.path for item in ir.contextEngineering.referenceFiles],
+        "references/",
+        "referenceFiles",
+    )
+    check(ir.contextEngineering.scripts, "scripts/", "scripts")
+    check(ir.contextEngineering.assets, "assets/", "assets")
+    return errors
 
 
 def validate_official_agent_skill(

@@ -13,7 +13,7 @@ from app.models import (
 from app.normalizer import normalize_draft
 from app.renderer import render_skill_package
 from app.spec_builder import build_skill_spec, required_spec_trace_items
-from app.validator import validate_ir
+from app.validator import validate_ir, validate_rendered_package
 from app.validator import validate_official_agent_skill, validate_spec_compliance
 from tests.test_api_pipeline import build_draft_payload
 
@@ -123,6 +123,45 @@ def test_spec_compliance_blocks_missing_trace(tmp_path: Path) -> None:
 
     assert any(
         item.ruleId == "SPEC-TRACE-001" and item.level == "blocking"
+        for item in items
+    )
+
+
+def test_rendered_package_blocks_non_skill_root_entries(tmp_path: Path) -> None:
+    from tests.test_quality_orchestrator import valid_ir
+
+    ir = valid_ir()
+    render_skill_package(ir, tmp_path)
+    (tmp_path / "package-manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "install").mkdir()
+
+    items = validate_rendered_package(tmp_path, ir)
+
+    assert any(
+        item.ruleId == "PKG-004"
+        and item.level == "blocking"
+        and "package-manifest.json" in item.description
+        and "install" in item.description
+        for item in items
+    )
+
+
+def test_validate_ir_blocks_resource_paths_outside_standard_dirs() -> None:
+    from tests.test_quality_orchestrator import valid_ir
+
+    ir = valid_ir()
+    ir.contextEngineering.references = ["docs/domain.md"]
+    ir.contextEngineering.scripts = ["helpers/run.py"]
+    ir.contextEngineering.assets = ["template.json"]
+
+    items = validate_ir(ir)
+
+    assert any(
+        item.ruleId == "PKG-005"
+        and item.level == "blocking"
+        and "references/" in item.description
+        and "scripts/" in item.description
+        and "assets/" in item.description
         for item in items
     )
 

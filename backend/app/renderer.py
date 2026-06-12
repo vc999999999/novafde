@@ -87,6 +87,10 @@ def _tree_sort_key(path: Path) -> tuple[bool, bool, str]:
 
 
 def _write_skill_md(path: Path, ir: SkillIR) -> None:
+    path.write_text(render_skill_md_text(ir), encoding="utf-8")
+
+
+def render_skill_md_text(ir: SkillIR) -> str:
     frontmatter = yaml.safe_dump(
         {"name": ir.skill.name, "description": ir.skill.description},
         allow_unicode=True,
@@ -230,9 +234,11 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         lines.append("")
 
     lines.extend(["## Platform Notes", ""])
-    lines.append("Use the generated files under `install/` for platform-specific installation paths.")
+    lines.append(
+        "Install this Skill by copying the entire skill directory, including SKILL.md and any referenced resources."
+    )
     lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines)
 
 
 def _write_authored_reference(path: Path, reference_file: ReferenceFile, ir: SkillIR) -> None:

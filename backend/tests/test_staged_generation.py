@@ -5,11 +5,13 @@ from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
     WorkflowGenerationResult,
+    assemble_partial_skill_ir,
     assemble_skill_ir,
     validate_knowledge_result,
     validate_quality_result,
     validate_workflow_result,
 )
+from app.renderer import render_skill_package
 from tests.test_api_pipeline import build_draft_payload
 
 
@@ -160,3 +162,45 @@ def test_stage_validators_report_owned_contract_failures() -> None:
         item.specItemId
         for item in required_spec_trace_items(spec)
     }
+
+
+def test_partial_skill_ir_renders_skill_md_after_workflow_stage(tmp_path) -> None:
+    brief, spec = _brief_and_spec()
+    ir = assemble_partial_skill_ir(
+        brief,
+        spec,
+        workflow=_workflow(brief),
+    )
+
+    render_skill_package(ir, tmp_path)
+    skill_md = (tmp_path / ir.skill.name / "SKILL.md").read_text(encoding="utf-8")
+
+    assert skill_md.startswith("---\nname: product-research")
+    assert "## Workflow" in skill_md
+    assert "执行阶段：" in skill_md
+    assert "## Context Loading" in skill_md
+    assert "正在生成上下文资料" in skill_md
+    assert "## Verification Checklist" in skill_md
+    assert "每个结论都有来源" in skill_md
+
+
+def test_partial_skill_ir_accumulates_knowledge_and_quality(tmp_path) -> None:
+    brief, spec = _brief_and_spec()
+    knowledge = _knowledge()
+    knowledge.contextEngineering.filesystemAssumptions = ["只读取必要资料。"]
+    quality = _quality()
+
+    ir = assemble_partial_skill_ir(
+        brief,
+        spec,
+        workflow=_workflow(brief),
+        knowledge=knowledge,
+        quality=quality,
+    )
+
+    render_skill_package(ir, tmp_path)
+    skill_md = (tmp_path / ir.skill.name / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "只读取必要资料。" in skill_md
+    assert "先验证证据，再形成结论。" in skill_md
+    assert "模型自行生成的检查项" in skill_md

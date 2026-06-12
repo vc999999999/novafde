@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from app.adapter import PLATFORM_LABELS, write_install_guides
+from app.adapter import PLATFORM_LABELS
 from app.agent import SkillAgentRuntime
 from app.models import (
     AppSettings,
@@ -41,13 +41,14 @@ from app.prompts import (
     WORKFLOW_PROMPT_VERSION,
 )
 from app.quality import QualityPolicy, aggregate_quality_report, select_best_attempt
-from app.renderer import build_file_tree, render_skill_package
+from app.renderer import build_file_tree, render_skill_md_text, render_skill_package
 from app.settings import Settings
 from app.spec_builder import build_skill_spec, enforce_spec_contract
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
     WorkflowGenerationResult,
+    assemble_partial_skill_ir,
     assemble_skill_ir,
     validate_knowledge_result,
     validate_quality_result,
@@ -596,7 +597,6 @@ class QualityOrchestrator:
             render_skill_package(ir, package_root)
         except Exception as exc:
             raise CandidateRenderError(f"渲染 Skill 包失败：{exc}") from exc
-        write_install_guides(package_root, ir)
         file_hashes = hash_directory(package_root)
         file_paths = sorted(file_hashes)
         (
@@ -891,11 +891,16 @@ class QualityOrchestrator:
         ir = SkillIR.model_validate(attempt.skillIR)
         source_root = Path(attempt.renderedPath)
         final_root = self.settings.artifact_root / generation.id / "final" / "package"
+        metadata_root = self.settings.artifact_root / generation.id / "final" / "metadata"
         if final_root.exists():
             # Safety: verify path is within artifact_root before removing
             if not final_root.resolve().is_relative_to(self.settings.artifact_root.resolve()):
                 raise ValueError(f"Refusing to remove directory outside artifact root: {final_root}")
             shutil.rmtree(final_root)
+        if metadata_root.exists():
+            if not metadata_root.resolve().is_relative_to(self.settings.artifact_root.resolve()):
+                raise ValueError(f"Refusing to remove directory outside artifact root: {metadata_root}")
+            shutil.rmtree(metadata_root)
         final_root.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_root, final_root)
         # Validate against the spec revision this candidate was generated and
@@ -917,22 +922,23 @@ class QualityOrchestrator:
                 "FINAL_VALIDATION_FAILED",
                 "最终包未通过 SkillSpec 或官方 Agent Skills 校验。",
             )
-        write_validation_report(final_root, validation_items)
+        write_validation_report(metadata_root, validation_items)
         write_quality_report(
-            final_root,
+            metadata_root,
             report,
             degraded=degraded,
             repair_rounds=generation.currentRound,
             selection_reason=generation.finalSelectionReason,
         )
         write_manifest(
-            final_root,
+            metadata_root,
             ir,
             validation_items,
             report,
             selection_reason=generation.finalSelectionReason,
             skill_spec=attempt_spec,
             skill_spec_sha256=spec_entry.sha256 if spec_entry else None,
+            package_root=final_root,
         )
         score_label = round(report.overallScore or 0)
         zip_name = (
@@ -1218,6 +1224,7 @@ class QualityOrchestrator:
         spec: SkillSpec,
     ) -> tuple[SkillIR, list[AgentCallMetadata]]:
         calls: list[AgentCallMetadata] = []
+        self._update_skill_md_preview(generation, brief, spec)
 
         workflow, metadata = self._run_generation_stage(
             generation,
@@ -1229,8 +1236,15 @@ class QualityOrchestrator:
                 brief, spec, provider, feedback
             ),
             validate=lambda result: validate_workflow_result(result, spec),
+            on_result=lambda result: self._update_skill_md_preview(
+                generation,
+                brief,
+                spec,
+                workflow=result,
+            ),
         )
         calls.append(metadata)
+        self._update_skill_md_preview(generation, brief, spec, workflow=workflow)
 
         knowledge, metadata = self._run_generation_stage(
             generation,
@@ -1242,8 +1256,22 @@ class QualityOrchestrator:
                 brief, spec, workflow, provider, feedback
             ),
             validate=lambda result: validate_knowledge_result(result, spec),
+            on_result=lambda result: self._update_skill_md_preview(
+                generation,
+                brief,
+                spec,
+                workflow=workflow,
+                knowledge=result,
+            ),
         )
         calls.append(metadata)
+        self._update_skill_md_preview(
+            generation,
+            brief,
+            spec,
+            workflow=workflow,
+            knowledge=knowledge,
+        )
 
         quality, metadata = self._run_generation_stage(
             generation,
@@ -1255,8 +1283,24 @@ class QualityOrchestrator:
                 brief, spec, workflow, knowledge, provider, feedback
             ),
             validate=lambda result: validate_quality_result(result, spec),
+            on_result=lambda result: self._update_skill_md_preview(
+                generation,
+                brief,
+                spec,
+                workflow=workflow,
+                knowledge=knowledge,
+                quality=result,
+            ),
         )
         calls.append(metadata)
+        self._update_skill_md_preview(
+            generation,
+            brief,
+            spec,
+            workflow=workflow,
+            knowledge=knowledge,
+            quality=quality,
+        )
 
         return (
             assemble_skill_ir(
@@ -1279,6 +1323,7 @@ class QualityOrchestrator:
         message: str,
         call: Any,
         validate: Any,
+        on_result: Any | None = None,
     ) -> tuple[Any, AgentCallMetadata]:
         feedback: list[str] = []
         last_errors: list[str] = []
@@ -1304,6 +1349,8 @@ class QualityOrchestrator:
                     lambda selected: call(selected, feedback),
                 )
                 last_errors = list(validate(result))
+                if on_result is not None and result is not None:
+                    on_result(result)
             except Exception as exc:
                 last_errors = [str(exc)]
             completed_at = now_ms()
@@ -1355,6 +1402,34 @@ class QualityOrchestrator:
             )
             self.storage.save_generation(generation)
         raise StageGenerationError(stage, last_errors)
+
+    def _update_skill_md_preview(
+        self,
+        generation: GenerationResult,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        *,
+        workflow: WorkflowGenerationResult | None = None,
+        knowledge: KnowledgeGenerationResult | None = None,
+        quality: QualityGenerationResult | None = None,
+    ) -> None:
+        try:
+            preview_ir = assemble_partial_skill_ir(
+                brief,
+                spec,
+                workflow=workflow,
+                knowledge=knowledge,
+                quality=quality,
+            )
+            generation.skillMd = render_skill_md_text(preview_ir)
+            self.storage.save_generation(generation)
+        except Exception as exc:
+            self.storage.add_run_event(
+                generation.id,
+                "skill_md_preview_failed",
+                {"message": str(exc)},
+                now_ms(),
+            )
 
     def _cancel_requested(self, run_id: str) -> bool:
         current = self.storage.get_generation(run_id)

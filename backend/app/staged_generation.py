@@ -189,6 +189,57 @@ def assemble_skill_ir(
     return ir
 
 
+def assemble_partial_skill_ir(
+    brief: SkillBrief,
+    spec: SkillSpec,
+    *,
+    workflow: WorkflowGenerationResult | None = None,
+    knowledge: KnowledgeGenerationResult | None = None,
+    quality: QualityGenerationResult | None = None,
+) -> SkillIR:
+    """Build a renderable preview IR from whichever staged outputs exist."""
+    workflow = workflow or _placeholder_workflow(brief, spec)
+    knowledge = knowledge or KnowledgeGenerationResult(
+        contextEngineering=ContextEngineering(
+            filesystemAssumptions=[
+                "正在生成上下文资料；完成后会按需加载 references、scripts 或 assets。",
+            ],
+        ),
+        agentKnowledge=AgentKnowledge(),
+    )
+    quality = quality or QualityGenerationResult()
+    return assemble_skill_ir(brief, spec, workflow, knowledge, quality)
+
+
+def _placeholder_workflow(
+    brief: SkillBrief,
+    spec: SkillSpec,
+) -> WorkflowGenerationResult:
+    stages = [stage for stage in spec.workflowStages if stage.required]
+    steps = [
+        WorkflowStep(
+            id=f"pending_{index}",
+            purpose=stage.statement,
+            action=f"待生成：{stage.statement}",
+            input="用户草稿、生成规格与已补充信息",
+            output="待生成的阶段结果",
+            validation="完成后由质量流水线校验",
+            failureHandling="生成失败时保留当前可读草稿，便于继续修复。",
+        )
+        for index, stage in enumerate(stages, start=1)
+    ]
+    return WorkflowGenerationResult(
+        description=spec.activationContract.usage,
+        overview="阶段性预览：后续生成步骤会继续补全和修订内容。",
+        objective=spec.activationContract.desiredOutcome or brief.desiredOutcome,
+        steps=steps,
+        decisionPoints=[],
+        failureHandling=[],
+        verification=[],
+        skillHandoffs=[],
+    )
+
+
 def missing_trace_ids(ir: SkillIR, spec: SkillSpec) -> list[str]:
     required = {
         item.specItemId for item in required_spec_trace_items(spec)

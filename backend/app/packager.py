@@ -22,14 +22,16 @@ from app.validator import (
 
 
 def write_manifest(
-    package_root: Path,
+    output_root: Path,
     ir: SkillIR,
     validation_items: list[ValidationItem],
     quality_report: QualityEvaluationReport | None = None,
     selection_reason: str | None = None,
     skill_spec: SkillSpec | None = None,
     skill_spec_sha256: str | None = None,
+    package_root: Path | None = None,
 ) -> Path:
+    package_root = package_root or output_root
     creator = load_creator_skill()
     manifest = {
         "schemaVersion": "1.0",
@@ -72,35 +74,38 @@ def write_manifest(
             else None
         ),
     }
-    path = package_root / "package-manifest.json"
+    output_root.mkdir(parents=True, exist_ok=True)
+    path = output_root / "package-manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (package_root / "skillforge-manifest.json").write_text(
+    (output_root / "skillforge-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     return path
 
 
-def write_validation_report(package_root: Path, validation_items: list[ValidationItem]) -> Path:
+def write_validation_report(output_root: Path, validation_items: list[ValidationItem]) -> Path:
     payload = {
         "items": [item.model_dump(mode="json") for item in validation_items],
         "blockingIssues": sum(1 for item in validation_items if item.level == "blocking"),
         "warnings": sum(1 for item in validation_items if item.level == "warning"),
     }
-    path = package_root / "validation-report.json"
+    output_root.mkdir(parents=True, exist_ok=True)
+    path = output_root / "validation-report.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
 
 def write_quality_report(
-    package_root: Path,
+    output_root: Path,
     report: QualityEvaluationReport,
     *,
     degraded: bool,
     repair_rounds: int,
     selection_reason: str | None = None,
 ) -> Path:
-    json_path = package_root / "quality-report.json"
+    output_root.mkdir(parents=True, exist_ok=True)
+    json_path = output_root / "quality-report.json"
     json_path.write_text(
         report.model_dump_json(indent=2),
         encoding="utf-8",
@@ -133,7 +138,7 @@ def write_quality_report(
                 "",
             ]
         )
-    markdown_path = package_root / "QUALITY_REPORT.md"
+    markdown_path = output_root / "QUALITY_REPORT.md"
     markdown_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return markdown_path
 

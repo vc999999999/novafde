@@ -6,7 +6,6 @@ import SupplementStep from '../components/steps/SupplementStep';
 import PageHeader from '../components/PageHeader';
 import StepIndicator from '../components/StepIndicator';
 import StepRail from '../components/StepRail';
-import FileTree from '../components/FileTree';
 import ValidationReport from '../components/ValidationReport';
 import GenerationLoading from '../components/GenerationLoading';
 import QualityScorePanel from '../components/QualityScorePanel';
@@ -475,7 +474,7 @@ export default function CreatePage({
           sub={generation?.stageMessage || '质量优先模式会持续检查并修复输出'}
         />
         <div className={cn(
-          'mx-auto grid w-full max-w-[1180px] items-start gap-5',
+          'mx-auto grid w-full max-w-[1180px] items-stretch gap-5',
           (skillSpec || skillSpecError) && 'lg:grid-cols-[minmax(0,1fr)_340px]',
         )}>
           {!isAwaitingInput && (
@@ -495,12 +494,26 @@ export default function CreatePage({
             />
           )}
           {(skillSpec || skillSpecError) && (
-            <SkillSpecPanel
-              response={skillSpec}
-              error={skillSpecError}
-              compact
-              className="w-full lg:sticky lg:top-[84px]"
-            />
+            isAwaitingInput ? (
+              <SkillSpecPanel
+                response={skillSpec}
+                error={skillSpecError}
+                compact
+                defaultOpen
+                className="w-full"
+              />
+            ) : (
+              /* 与左侧生成进度卡等高对齐，规格内容在卡片内部滚动 */
+              <div className="relative">
+                <SkillSpecPanel
+                  response={skillSpec}
+                  error={skillSpecError}
+                  compact
+                  defaultOpen
+                  className="w-full lg:absolute lg:inset-0 lg:overflow-auto"
+                />
+              </div>
+            )
           )}
         </div>
         {isAwaitingInput && generation.userQuestions.length > 0 && (
@@ -562,9 +575,9 @@ export default function CreatePage({
       ? 'border-error-border bg-error-dim text-error'
       : 'border-warning-border bg-warning-dim text-warning';
   const downloadInfo = generation.downloadInfo;
-  const hasArtifacts = generation.files.length > 0
-    || Boolean(generation.skillMd)
+  const hasArtifacts = Boolean(generation.skillMd)
     || generation.validation.length > 0;
+  const resultTabDefault = generation.skillMd ? 'skillmd' : 'validation';
 
   return (
     <div className="flex flex-1 flex-col">
@@ -703,10 +716,9 @@ export default function CreatePage({
 
           {hasArtifacts ? (
             <Card className="border-panel-border bg-panel p-5 shadow-md">
-              <Tabs defaultValue={generation.files.length > 0 ? 'files' : generation.skillMd ? 'skillmd' : 'validation'}>
+              <Tabs defaultValue={resultTabDefault}>
                 <TabsList className="mb-4 h-auto gap-1 rounded-full border border-panel-border bg-surface px-[3px] py-[3px]">
                   {[
-                    { value: 'files', label: '文件结构' },
                     { value: 'skillmd', label: 'SKILL.md 预览' },
                     { value: 'validation', label: '确定性校验' },
                   ].map((tab) => (
@@ -719,11 +731,6 @@ export default function CreatePage({
                     </TabsTrigger>
                   ))}
                 </TabsList>
-                <TabsContent value="files" className="animate-step-in">
-                  {generation.files.length > 0
-                    ? <FileTree files={generation.files} />
-                    : <p className="py-8 text-center text-sm text-muted-foreground">暂无文件输出</p>}
-                </TabsContent>
                 <TabsContent value="skillmd" className="animate-step-in">
                   <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
                     {generation.skillMd || '暂无预览'}

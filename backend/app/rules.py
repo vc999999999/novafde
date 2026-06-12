@@ -75,10 +75,24 @@ RULES = [
         "severity": "blocking",
     },
     {
+        "id": "PKG-004",
+        "category": "package-validation",
+        "title": "最终包顶层只能包含 Skill 目录",
+        "description": "下载包顶层必须只有一个与 frontmatter.name 一致的 Skill 目录，运行时元数据必须保存在包外。",
+        "severity": "blocking",
+    },
+    {
+        "id": "PKG-005",
+        "category": "package-validation",
+        "title": "资源文件必须位于规范目录",
+        "description": "知识文件、脚本和资产必须分别位于 Skill 目录内的 references/、scripts/ 和 assets/。",
+        "severity": "blocking",
+    },
+    {
         "id": "PLAT-001",
         "category": "platform-compatibility",
         "title": "生成目标平台安装说明",
-        "description": "canonical Skill 包之外应包含各平台安装说明，避免复制三套 Skill。",
+        "description": "平台安装说明属于运行时元数据，不得写入 canonical Skill 下载包。",
         "severity": "warning",
     },
     {
