@@ -21,13 +21,67 @@ from app.prompts import (
     GENERATION_PROMPT_VERSION,
     IMPLEMENTATION_INSTRUCTIONS,
     IMPLEMENTATION_PROMPT_VERSION,
+    KNOWLEDGE_INSTRUCTIONS,
+    KNOWLEDGE_PROMPT_VERSION,
+    QUALITY_INSTRUCTIONS,
+    QUALITY_PROMPT_VERSION,
     REPAIR_INSTRUCTIONS,
     REPAIR_PROMPT_VERSION,
+    SEMANTIC_TRACE_INSTRUCTIONS,
+    SEMANTIC_TRACE_PROMPT_VERSION,
+    WORKFLOW_INSTRUCTIONS,
+    WORKFLOW_PROMPT_VERSION,
 )
 from app.provider_runtime import PydanticAgentRuntime
+from app.staged_generation import (
+    KnowledgeGenerationResult,
+    QualityGenerationResult,
+    SemanticTraceResult,
+    WorkflowGenerationResult,
+)
 
 
 class SkillAgentRuntime(Protocol):
+    def generate_workflow(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[WorkflowGenerationResult, AgentCallMetadata]:
+        ...
+
+    def generate_knowledge(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        workflow: WorkflowGenerationResult,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[KnowledgeGenerationResult, AgentCallMetadata]:
+        ...
+
+    def generate_quality(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        workflow: WorkflowGenerationResult,
+        knowledge: KnowledgeGenerationResult,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[QualityGenerationResult, AgentCallMetadata]:
+        ...
+
+    def generate_semantic_trace(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        ir: SkillIR,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[SemanticTraceResult, AgentCallMetadata]:
+        ...
+
     def generate(
         self,
         brief: SkillBrief,
@@ -78,6 +132,98 @@ class SkillAgentRuntime(Protocol):
 class PydanticSkillAgents:
     def __init__(self, runtime: PydanticAgentRuntime | None = None) -> None:
         self.runtime = runtime or PydanticAgentRuntime()
+
+    def generate_workflow(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[WorkflowGenerationResult, AgentCallMetadata]:
+        payload = {
+            "skillSpec": spec.model_dump(mode="json"),
+            "skillBrief": brief.model_dump(mode="json"),
+            "retryFeedback": feedback,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="generation",
+            instructions=WORKFLOW_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=WorkflowGenerationResult,
+            prompt_version=WORKFLOW_PROMPT_VERSION,
+        )
+
+    def generate_knowledge(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        workflow: WorkflowGenerationResult,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[KnowledgeGenerationResult, AgentCallMetadata]:
+        payload = {
+            "skillSpec": spec.model_dump(mode="json"),
+            "skillBrief": brief.model_dump(mode="json"),
+            "validatedWorkflow": workflow.model_dump(mode="json"),
+            "retryFeedback": feedback,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="generation",
+            instructions=KNOWLEDGE_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=KnowledgeGenerationResult,
+            prompt_version=KNOWLEDGE_PROMPT_VERSION,
+        )
+
+    def generate_quality(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        workflow: WorkflowGenerationResult,
+        knowledge: KnowledgeGenerationResult,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[QualityGenerationResult, AgentCallMetadata]:
+        payload = {
+            "skillSpec": spec.model_dump(mode="json"),
+            "skillBrief": brief.model_dump(mode="json"),
+            "validatedWorkflow": workflow.model_dump(mode="json"),
+            "validatedKnowledge": knowledge.model_dump(mode="json"),
+            "retryFeedback": feedback,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="generation",
+            instructions=QUALITY_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=QualityGenerationResult,
+            prompt_version=QUALITY_PROMPT_VERSION,
+        )
+
+    def generate_semantic_trace(
+        self,
+        brief: SkillBrief,
+        spec: SkillSpec,
+        ir: SkillIR,
+        provider: ModelProviderConfig,
+        feedback: list[str],
+    ) -> tuple[SemanticTraceResult, AgentCallMetadata]:
+        payload = {
+            "skillSpec": spec.model_dump(mode="json"),
+            "skillBrief": brief.model_dump(mode="json"),
+            "assembledSkillIR": ir.model_dump(mode="json"),
+            "retryFeedback": feedback,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="generation",
+            instructions=SEMANTIC_TRACE_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=SemanticTraceResult,
+            prompt_version=SEMANTIC_TRACE_PROMPT_VERSION,
+        )
 
     def generate(
         self,

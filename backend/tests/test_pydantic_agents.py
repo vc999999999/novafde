@@ -13,6 +13,12 @@ from app.models import (
 )
 from app.provider_runtime import PydanticAgentRuntime
 from app.spec_builder import build_skill_spec
+from app.staged_generation import (
+    KnowledgeGenerationResult,
+    QualityGenerationResult,
+    SemanticTraceResult,
+    WorkflowGenerationResult,
+)
 
 
 def build_brief() -> SkillBrief:
@@ -103,6 +109,129 @@ def generated_ir_payload() -> dict:
         },
         "platforms": {"targets": []},
     }
+
+
+def workflow_payload() -> dict:
+    return {
+        "description": "Use when the user needs a product research workflow.",
+        "overview": "Create evidence-backed conclusions.",
+        "objective": "形成可验证的研究结论",
+        "steps": generated_ir_payload()["workflow"]["steps"],
+        "decisionPoints": [],
+        "failureHandling": ["Request missing sources"],
+        "verification": ["Every claim has a source"],
+        "skillHandoffs": [],
+    }
+
+
+def knowledge_payload() -> dict:
+    payload = generated_ir_payload()
+    return {
+        "contextEngineering": payload["contextEngineering"],
+        "agentKnowledge": payload["agentKnowledge"],
+    }
+
+
+def quality_payload() -> dict:
+    return {
+        "freedomLevel": "medium",
+        "softGuidance": ["Keep conclusions concise."],
+        "validationChecklist": ["每个结论都有来源"],
+    }
+
+
+def semantic_trace_payload() -> dict:
+    return {
+        "items": [
+            {
+                "specItemId": "activation.usage",
+                "irPaths": ["skill.description"],
+            },
+            {
+                "specItemId": "activation.outcome",
+                "irPaths": ["workflow.objective"],
+            },
+            {
+                "specItemId": "workflow.stage.01",
+                "irPaths": ["workflow.steps[0]"],
+            },
+        ]
+    }
+
+
+def test_staged_generation_agents_return_focused_outputs() -> None:
+    brief = build_brief()
+    spec = build_skill_spec(brief, revision=1)
+    provider = build_provider()
+
+    workflow_agents = PydanticSkillAgents(
+        PydanticAgentRuntime(
+            model_factory=lambda _provider, _role: TestModel(
+                custom_output_args=workflow_payload()
+            )
+        )
+    )
+    workflow, workflow_meta = workflow_agents.generate_workflow(
+        brief,
+        spec,
+        provider,
+        [],
+    )
+
+    knowledge_agents = PydanticSkillAgents(
+        PydanticAgentRuntime(
+            model_factory=lambda _provider, _role: TestModel(
+                custom_output_args=knowledge_payload()
+            )
+        )
+    )
+    knowledge, knowledge_meta = knowledge_agents.generate_knowledge(
+        brief,
+        spec,
+        workflow,
+        provider,
+        [],
+    )
+
+    quality_agents = PydanticSkillAgents(
+        PydanticAgentRuntime(
+            model_factory=lambda _provider, _role: TestModel(
+                custom_output_args=quality_payload()
+            )
+        )
+    )
+    quality, quality_meta = quality_agents.generate_quality(
+        brief,
+        spec,
+        workflow,
+        knowledge,
+        provider,
+        [],
+    )
+
+    trace_agents = PydanticSkillAgents(
+        PydanticAgentRuntime(
+            model_factory=lambda _provider, _role: TestModel(
+                custom_output_args=semantic_trace_payload()
+            )
+        )
+    )
+    trace, trace_meta = trace_agents.generate_semantic_trace(
+        brief,
+        spec,
+        SkillIR.model_validate(generated_ir_payload()),
+        provider,
+        [],
+    )
+
+    assert isinstance(workflow, WorkflowGenerationResult)
+    assert isinstance(knowledge, KnowledgeGenerationResult)
+    assert isinstance(quality, QualityGenerationResult)
+    assert isinstance(trace, SemanticTraceResult)
+    assert workflow_meta.promptVersion == "workflow-v1-staged"
+    assert knowledge_meta.promptVersion == "knowledge-v1-staged"
+    assert quality_meta.promptVersion == "quality-v1-staged"
+    assert trace_meta.promptVersion == "semantic-trace-v1-staged"
 
 
 def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() -> None:
