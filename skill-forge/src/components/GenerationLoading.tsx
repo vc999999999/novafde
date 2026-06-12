@@ -38,7 +38,7 @@ export default function GenerationLoading({
 }) {
   return (
     <div className="flex min-h-[calc(100dvh-150px)] flex-1 items-center justify-center">
-      <Card className="w-full max-w-[620px] border-panel-border bg-panel p-6 shadow-md">
+      <Card className="animate-step-in w-full max-w-[620px] border-panel-border bg-panel p-6 shadow-md">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-accent-border bg-accent-dim">
             <LoaderCircle className="size-5 animate-spin text-accent" />

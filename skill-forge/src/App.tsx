@@ -50,6 +50,21 @@ export default function App() {
     setPage('create');
   }, []);
 
+  // Cursor spotlight on cards — one delegated listener feeds --mx/--my to index.css
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const card = target.closest('[data-slot="card"]');
+      if (!(card instanceof HTMLElement)) return;
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${event.clientX - rect.left}px`);
+      card.style.setProperty('--my', `${event.clientY - rect.top}px`);
+    };
+    window.addEventListener('mousemove', handleMove, { passive: true });
+    return () => window.removeEventListener('mousemove', handleMove);
+  }, []);
+
   useEffect(() => {
     const initialCheck = window.setTimeout(() => void refreshConnection(), 0);
     const interval = window.setInterval(() => void refreshConnection(), 10_000);
@@ -64,7 +79,7 @@ export default function App() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col px-5 pb-12 pt-5">
-      <div className="mb-4 flex flex-col items-stretch justify-between gap-3 sm:h-12 sm:flex-row sm:items-center">
+      <header className="sticky top-0 z-40 -mx-5 -mt-5 mb-4 flex flex-col items-stretch justify-between gap-3 border-b border-white/[0.05] bg-bg/75 px-5 pb-3 pt-4 backdrop-blur-xl sm:flex-row sm:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <a
             className="select-none text-sm font-bold tracking-wide text-foreground no-underline"
@@ -106,7 +121,7 @@ export default function App() {
             ))}
           </TabsList>
         </Tabs>
-      </div>
+      </header>
 
       {page === 'create' && (
         <CreatePage

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PageHeader from '../components/PageHeader';
 import Toggle from '../components/Toggle';
 import {
   createModelProvider,
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -183,9 +185,7 @@ function ProviderEditor({
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 [&>*]:space-y-1.5">
         <div className="md:col-span-2">
           <Label className="text-muted-foreground">Quick fill Provider</Label>
-          <select
-            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+          <NativeSelect
             value={selectedPreset ? String(presetIndex) : ''}
             onChange={(event) => {
               if (event.target.value === '') {
@@ -210,7 +210,7 @@ function ProviderEditor({
             {LLM_PROVIDER_PRESETS.map((preset, index) => (
               <option key={`${preset.label}-${preset.protocol}`} value={index}>{preset.label}</option>
             ))}
-          </select>
+          </NativeSelect>
           <p className="text-xs text-muted-foreground mt-1 leading-snug">选择常用 Provider 后会自动填入协议、Base URL、模型和本地环境变量名。</p>
         </div>
 
@@ -221,9 +221,7 @@ function ProviderEditor({
 
         <div>
           <Label className="text-muted-foreground">协议</Label>
-          <select
-            className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+          <NativeSelect
             value={form.protocol}
             onChange={(event) => {
               const protocol = event.target.value as ProviderProtocol;
@@ -263,7 +261,7 @@ function ProviderEditor({
             {PROVIDER_PROTOCOLS.map((protocol) => (
               <option key={protocol.value} value={protocol.value}>{protocol.label}</option>
             ))}
-          </select>
+          </NativeSelect>
           <p className="text-xs text-muted-foreground mt-1 leading-snug">
             {PROVIDER_PROTOCOLS.find((protocol) => protocol.value === form.protocol)?.desc}
           </p>
@@ -290,9 +288,7 @@ function ProviderEditor({
         <div>
           <Label className="text-muted-foreground">模型</Label>
           {modelOptions.length > 0 ? (
-            <select
-              className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+            <NativeSelect
               value={isCustomModel || !form.defaultModel ? '__custom__' : form.defaultModel}
               onChange={(event) => {
                 if (event.target.value === '__custom__') {
@@ -306,7 +302,7 @@ function ProviderEditor({
                 <option key={model} value={model}>{model}</option>
               ))}
               <option value="__custom__">自定义模型</option>
-            </select>
+            </NativeSelect>
           ) : (
             <Input
               value={form.defaultModel}
@@ -593,10 +589,10 @@ export default function SettingsPage() {
   if (editingProvider) {
     return (
       <div className="flex flex-col flex-1">
-        <section className="mb-5">
-          <p className="mb-2 text-xs tracking-[0.22em] uppercase text-muted-foreground">设置</p>
-          <h1 className="text-3xl font-semibold leading-tight">{persistedEditingProvider ? '编辑 Provider' : '新增 Provider'}</h1>
-        </section>
+        <PageHeader
+          title="设置"
+          sub={persistedEditingProvider ? '编辑 Provider' : '新增 Provider'}
+        />
 
         {error && (
           <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -619,10 +615,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col flex-1">
-      <section className="mb-5">
-        <p className="mb-2 text-xs tracking-[0.22em] uppercase text-muted-foreground">设置</p>
-        <h1 className="text-3xl font-semibold leading-tight">设置</h1>
-      </section>
+      <PageHeader title="设置" sub="模型 Provider 与默认策略" />
 
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -647,7 +640,7 @@ export default function SettingsPage() {
             const testResult = testResults[provider.id] || (provider.lastTest ? toConnectionResult(provider.lastTest) : { status: 'idle' });
 
             return (
-              <div key={provider.id} className="flex items-center justify-between gap-3 p-3 px-4 rounded-[var(--radius-md)] border border-panel-border bg-surface mb-2 transition-colors hover:border-white/15">
+              <div key={provider.id} className="mb-2 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-panel-border bg-surface p-3 px-4 transition-[border-color,background-color] duration-200 hover:border-white/15 hover:bg-surface-up">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold">{provider.name || '未命名'}</span>
@@ -698,9 +691,7 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label className="text-muted-foreground">生成 Provider / 模型</Label>
-              <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+              <NativeSelect
                 value={defaultGenerateProvider}
                 onChange={(event) => setDefaultGenerateProvider(event.target.value)}
               >
@@ -708,13 +699,11 @@ export default function SettingsPage() {
                   <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
                 {generationProviders.length === 0 && <option value="">无具备 generation 角色的 Provider</option>}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-1.5">
               <Label className="text-muted-foreground">修复 Provider / 模型</Label>
-              <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+              <NativeSelect
                 value={defaultRepairProvider}
                 onChange={(event) => setDefaultRepairProvider(event.target.value)}
               >
@@ -722,13 +711,11 @@ export default function SettingsPage() {
                   <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
                 {repairProviders.length === 0 && <option value="">无具备 repair 角色的 Provider</option>}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-1.5">
               <Label className="text-muted-foreground">评测 Provider / 模型</Label>
-              <select
-                className="appearance-none w-full p-2.5 px-3.5 rounded-[var(--radius-md)] border border-white/10 bg-surface text-foreground font-inherit text-sm cursor-pointer transition-colors focus:outline-none focus:border-accent focus:bg-white/5"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,0.6)\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36 }}
+              <NativeSelect
                 value={defaultValidateProvider}
                 onChange={(event) => setDefaultValidateProvider(event.target.value)}
               >
@@ -736,7 +723,7 @@ export default function SettingsPage() {
                   <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
                 ))}
                 {validateProviders.length === 0 && <option value="">无具备评测角色的 Provider</option>}
-              </select>
+              </NativeSelect>
             </div>
             <Toggle label="配置缺失时阻止生成" checked={blockOnMissingConfig} onChange={setBlockOnMissingConfig} />
           </div>

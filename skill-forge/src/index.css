@@ -4,16 +4,16 @@
    Theme Tokens — map original design system to Tailwind/shadcn
    ============================================================ */
 @theme {
-  /* Colors — original palette preserved */
-  --color-bg: #000;
-  --color-panel: #050505;
+  /* Colors — cool-tinted dark, layered elevation (bg → panel → surface → surface-up) */
+  --color-bg: #08080b;
+  --color-panel: #0d0d12;
   --color-panel-border: rgba(255, 255, 255, 0.08);
   --color-panel-hover: rgba(255, 255, 255, 0.16);
-  --color-surface: rgba(255, 255, 255, 0.03);
-  --color-surface-up: rgba(255, 255, 255, 0.055);
-  --color-text: #fff;
-  --color-text-secondary: rgba(255, 255, 255, 0.6);
-  --color-text-tertiary: rgba(255, 255, 255, 0.35);
+  --color-surface: rgba(255, 255, 255, 0.035);
+  --color-surface-up: rgba(255, 255, 255, 0.065);
+  --color-text: #f4f5f8;
+  --color-text-secondary: rgba(235, 238, 248, 0.62);
+  --color-text-tertiary: rgba(235, 238, 248, 0.36);
   --color-accent: #6c9cff;
   --color-accent-dim: rgba(108, 156, 255, 0.12);
   --color-accent-border: rgba(108, 156, 255, 0.3);
@@ -57,9 +57,13 @@
   --radius-full: 999px;
   --radius: var(--radius-md);
 
-  /* Shadows */
-  --shadow-sm: 0 8px 30px rgba(0, 0, 0, 0.25);
-  --shadow-md: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 60px rgba(0, 0, 0, 0.36);
+  /* Shadows — blue-tinted, single top-left light source, inner top edge highlight */
+  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(4, 8, 20, 0.35);
+  --shadow-md:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(2, 4, 12, 0.5),
+    0 24px 60px rgba(4, 8, 22, 0.45);
+  --shadow-glow: 0 0 0 1px rgba(108, 156, 255, 0.22), 0 8px 32px rgba(108, 156, 255, 0.18);
 
   /* Fonts */
   --font-sans: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
@@ -117,13 +121,29 @@
     font-family: var(--font-sans);
     font-size: var(--text-base);
     line-height: var(--leading-normal);
-    background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 26%), var(--color-bg);
+    background:
+      radial-gradient(ellipse 80% 40% at 50% -8%, rgba(108, 156, 255, 0.09), transparent 60%),
+      radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 28%),
+      var(--color-bg);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /* Film grain — breaks digital flatness, sits above background, below content */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  ::selection { background: rgba(108, 156, 255, 0.32); color: #fff; }
   body.modal-open { overflow: hidden; }
-  #root { min-height: 100vh; display: flex; flex-direction: column; }
+  #root { min-height: 100dvh; display: flex; flex-direction: column; position: relative; z-index: 1; }
+  .font-mono, code, pre, [data-numeric] { font-variant-numeric: tabular-nums; }
+  html { scroll-behavior: smooth; }
   a { color: var(--color-accent); text-decoration: none; }
   a:hover { opacity: 0.85; }
 }
@@ -138,6 +158,62 @@
 @keyframes pulse-shadow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(108, 156, 255, 0.4); }
   50% { box-shadow: 0 0 0 8px rgba(108, 156, 255, 0); }
+}
+@keyframes step-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes check-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes shimmer-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@keyframes saving-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Step / card entrance — apply with .animate-step-in, stagger via --enter-delay */
+.animate-step-in {
+  animation: step-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+/* ============================================================
+   Card surface — gradient top-lit edge + cursor spotlight
+   (driven by --mx/--my set from a delegated mousemove listener)
+   ============================================================ */
+[data-slot="card"] {
+  position: relative;
+  background-image: linear-gradient(170deg, rgba(255, 255, 255, 0.035), transparent 32%);
+}
+[data-slot="card"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  background: radial-gradient(
+    300px circle at var(--mx, 50%) var(--my, 0%),
+    rgba(108, 156, 255, 0.08),
+    transparent 65%
+  );
+}
+[data-slot="card"]:hover::after { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
 }
 
 /* Responsive sidebar width overrides */

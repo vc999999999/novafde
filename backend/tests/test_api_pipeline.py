@@ -177,7 +177,7 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         versions = manifest["versions"]
         assert versions["creatorSkillVersion"] == "1.1.0"
         assert len(versions["creatorSkillSha256"]) == 64
-        assert versions["generationPromptVersion"] == "generation-v3.2-sdd"
+        assert versions["generationPromptVersion"] == "generation-v3.3-sdd"
         assert versions["skillSpecSchemaVersion"] == "1.0"
         assert versions["skillSpecRevision"] == 1
         assert versions["skillSpecSha256"] == generation["skillSpecSha256"]

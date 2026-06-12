@@ -37,6 +37,27 @@ def test_authored_reference_files_render_model_content(tmp_path) -> None:
     assert "Load `references/research-method.md` when: 需要执行证据分级时" in skill_md
 
 
+def test_renderer_skips_directory_like_paths(tmp_path) -> None:
+    ir = valid_ir()
+    ir.contextEngineering.referenceFiles = [
+        ReferenceFile(
+            path="references/method.md",
+            purpose="需要方法论时",
+            content="# 方法论\n\n内容。",
+        ),
+        # A bare directory entry must not be written as a file: doing so used
+        # to crash with EACCES/EISDIR once the real files created the folder.
+        ReferenceFile(path="references", purpose="", content="x"),
+    ]
+    ir.contextEngineering.references = ["references", "references/extra.md"]
+
+    skill_dir = render_skill_package(ir, tmp_path / "pkg")
+
+    assert (skill_dir / "references").is_dir()
+    assert (skill_dir / "references/method.md").is_file()
+    assert (skill_dir / "references/extra.md").is_file()
+
+
 def test_skill_md_renders_workflow_and_quality_lists(tmp_path) -> None:
     ir = valid_ir()
     ir.workflow.decisionPoints = ["证据不足时先扩大检索范围，再决定是否降级结论"]

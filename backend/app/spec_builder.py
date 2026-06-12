@@ -223,10 +223,16 @@ _PACKAGE_DIRS = {"references", "scripts", "assets", "install"}
 
 
 def _normalize_rendered_path(path: str, skill_name: str) -> str:
-    cleaned = path.strip().lstrip("/")
+    cleaned = path.replace("\\", "/").strip().lstrip("/")
     while cleaned.startswith("./"):
         cleaned = cleaned[2:]
     segments = [segment for segment in cleaned.split("/") if segment]
+    while (
+        len(segments) > 1
+        and segments[0] == skill_name
+        and segments[1] == skill_name
+    ):
+        segments.pop(0)
     if not segments or segments[0] == skill_name:
         return "/".join(segments) or cleaned
     if segments[0] == "SKILL.md" or segments[0] in _PACKAGE_DIRS:
@@ -238,32 +244,101 @@ def _normalize_rendered_path(path: str, skill_name: str) -> str:
     return "/".join(segments)
 
 
+def _normalize_package_relative_path(path: str, skill_name: str) -> str:
+    cleaned = path.replace("\\", "/").strip().lstrip("/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    segments = [segment for segment in cleaned.split("/") if segment]
+    while segments and segments[0] == skill_name:
+        segments.pop(0)
+    return "/".join(segments)
+
+
+# Spec items whose canonical IR path is the prefix itself.
+_EXACT_IR_PATH_PREFIXES = {
+    "skill.name",
+    "platforms.targets",
+    "skill.description",
+    "workflow.objective",
+}
+
+
+def _matches_ir_prefix(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(f"{prefix}.") or path.startswith(
+        f"{prefix}["
+    )
+
+
+def _canonical_ir_path(
+    ir: SkillIR, requirement: RequiredSpecTraceItem
+) -> str | None:
+    prefix = requirement.irPathPrefix
+    if prefix in _EXACT_IR_PATH_PREFIXES:
+        return prefix
+    expected = requirement.expectedValue
+    if not isinstance(expected, str):
+        return None
+    if prefix == "agentKnowledge.unknownKnowledge":
+        if expected in ir.agentKnowledge.unknownKnowledge:
+            index = ir.agentKnowledge.unknownKnowledge.index(expected)
+            return f"{prefix}[{index}]"
+        return None
+    if prefix == "quality.hardRestrictions":
+        if expected in ir.quality.hardRestrictions:
+            return f"{prefix}[{ir.quality.hardRestrictions.index(expected)}]"
+        return None
+    return None
+
+
 def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
     """Deterministically repair spec-trace facts no agent should be trusted with.
 
-    Rendered paths are decided by the renderer, not the model, so wrong or
-    missing skill-directory prefixes are normalized instead of failing the
-    candidate. User supplement statements are appended verbatim to the IR and
-    given a trace entry when the agent omitted them, because supplements are
-    authoritative user facts that must survive every candidate.
+    Rendered paths and the package layout are decided by the renderer, not the
+    model, so wrong or missing skill-directory prefixes are normalized instead
+    of failing the candidate — both in specTrace.renderedPaths and in
+    contextEngineering file paths. Incremental knowledge and user supplement
+    statements are authoritative user facts that must survive every candidate,
+    so they are appended verbatim to agentKnowledge.unknownKnowledge when the
+    agent omitted them. Finally, irPaths bookkeeping is repaired: paths that
+    point outside the section required by the spec item are dropped, and the
+    canonical path (which is fully determined by the spec for identity,
+    activation, knowledge, and restriction items) is restored.
     """
     enforced = ir.model_copy(deep=True)
     skill_name = enforced.skill.name
+    context = enforced.contextEngineering
+    for reference_file in context.referenceFiles:
+        normalized = _normalize_package_relative_path(
+            reference_file.path, skill_name
+        )
+        if normalized:
+            reference_file.path = normalized
+    for field in ("references", "scripts", "assets"):
+        normalized_paths = []
+        for path in getattr(context, field):
+            normalized = _normalize_package_relative_path(path, skill_name)
+            if normalized and normalized not in normalized_paths:
+                normalized_paths.append(normalized)
+        setattr(context, field, normalized_paths)
+
     for trace in enforced.specTrace:
         trace.renderedPaths = [
             _normalize_rendered_path(path, skill_name)
             for path in trace.renderedPaths
         ]
-    for supplement in spec.userSupplements:
-        if supplement.statement not in enforced.agentKnowledge.unknownKnowledge:
-            enforced.agentKnowledge.unknownKnowledge.append(supplement.statement)
+
+    knowledge = enforced.agentKnowledge.unknownKnowledge
+    for statement in (
+        *spec.incrementalKnowledge,
+        *(supplement.statement for supplement in spec.userSupplements),
+    ):
+        if statement not in knowledge:
+            knowledge.append(statement)
     traced_ids = {trace.specItemId for trace in enforced.specTrace}
     for supplement in spec.userSupplements:
         if supplement.id in traced_ids:
             continue
-        index = enforced.agentKnowledge.unknownKnowledge.index(
-            supplement.statement
-        )
+        index = knowledge.index(supplement.statement)
         enforced.specTrace.append(
             SpecTraceItem(
                 specItemId=supplement.id,
@@ -271,4 +346,25 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
                 renderedPaths=[f"{skill_name}/SKILL.md"],
             )
         )
+
+    requirements = {
+        item.specItemId: item for item in required_spec_trace_items(spec)
+    }
+    for trace in enforced.specTrace:
+        requirement = requirements.get(trace.specItemId)
+        if requirement is None:
+            continue
+        allowed = (requirement.irPathPrefix, *requirement.alternateIrPathPrefixes)
+        kept = [
+            path
+            for path in trace.irPaths
+            if any(_matches_ir_prefix(path, prefix) for prefix in allowed)
+        ]
+        canonical = _canonical_ir_path(enforced, requirement)
+        if canonical is not None and canonical not in kept:
+            kept.append(canonical)
+        if kept:
+            trace.irPaths = kept
+        if not trace.renderedPaths:
+            trace.renderedPaths = [f"{skill_name}/SKILL.md"]
     return enforced

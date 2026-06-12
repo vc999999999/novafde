@@ -185,3 +185,98 @@ def test_enforce_spec_contract_guarantees_supplement_knowledge_and_trace() -> No
     assert trace["supplement.issue-9"].irPaths == [
         f"agentKnowledge.unknownKnowledge[{index}]"
     ]
+
+
+def test_enforce_spec_contract_repairs_misplaced_ir_paths() -> None:
+    from app.models import SkillIR
+    from app.spec_builder import enforce_spec_contract
+
+    brief, _ = normalize_draft(_draft())
+    spec = build_skill_spec(brief, revision=1)
+    knowledge_statement = spec.incrementalKnowledge[0]
+    ir = SkillIR.model_validate(
+        {
+            "skill": {
+                "name": "product-research",
+                "description": "Use when research is needed.",
+                "language": "en",
+            },
+            "workflow": {"objective": "objective", "steps": []},
+            "platforms": {"targets": ["claude-code"]},
+            "quality": {"hardRestrictions": list(spec.hardRestrictions)},
+            "specTrace": [
+                {
+                    "specItemId": "identity.platforms",
+                    "irPaths": [],
+                    "renderedPaths": [],
+                },
+                {
+                    "specItemId": "activation.outcome",
+                    "irPaths": ["quality.hardRestrictions[0]"],
+                    "renderedPaths": ["product-research/SKILL.md"],
+                },
+                {
+                    "specItemId": "knowledge.incremental.01",
+                    "irPaths": [
+                        "workflow.steps[0].action",
+                        "contextEngineering.referenceFiles[0].content",
+                    ],
+                    "renderedPaths": ["product-research/SKILL.md"],
+                },
+            ],
+        }
+    )
+
+    enforced = enforce_spec_contract(ir, spec)
+
+    trace = {item.specItemId: item for item in enforced.specTrace}
+    assert trace["identity.platforms"].irPaths == ["platforms.targets"]
+    assert trace["identity.platforms"].renderedPaths == [
+        "product-research/SKILL.md"
+    ]
+    assert trace["activation.outcome"].irPaths == ["workflow.objective"]
+    assert knowledge_statement in enforced.agentKnowledge.unknownKnowledge
+    index = enforced.agentKnowledge.unknownKnowledge.index(knowledge_statement)
+    assert trace["knowledge.incremental.01"].irPaths == [
+        f"agentKnowledge.unknownKnowledge[{index}]"
+    ]
+
+
+def test_enforce_spec_contract_normalizes_context_engineering_paths() -> None:
+    from app.models import SkillIR
+    from app.spec_builder import enforce_spec_contract
+
+    brief, _ = normalize_draft(_draft())
+    spec = build_skill_spec(brief, revision=1)
+    ir = SkillIR.model_validate(
+        {
+            "skill": {
+                "name": "untitled",
+                "description": "Use when research is needed.",
+                "language": "en",
+            },
+            "workflow": {"objective": "objective", "steps": []},
+            "platforms": {"targets": ["claude-code"]},
+            "contextEngineering": {
+                "referenceFiles": [
+                    {
+                        "path": "untitled/references/method.md",
+                        "purpose": "p",
+                        "content": "# c",
+                    }
+                ],
+                "references": [
+                    "untitled\\references\\domain.md",
+                    "references/domain.md",
+                ],
+                "scripts": ["untitled/scripts/run.py"],
+            },
+        }
+    )
+
+    enforced = enforce_spec_contract(ir, spec)
+
+    context = enforced.contextEngineering
+    assert context.referenceFiles[0].path == "references/method.md"
+    assert context.references == ["references/domain.md"]
+    assert context.scripts == ["scripts/run.py"]

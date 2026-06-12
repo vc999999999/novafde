@@ -126,7 +126,7 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     assert ir.quality.hardRestrictions == spec.hardRestrictions
     assert ir.platforms.targets == brief.targetPlatforms
     assert metadata.providerId == "provider_test"
-    assert metadata.promptVersion == "generation-v3.2-sdd"
+    assert metadata.promptVersion == "generation-v3.3-sdd"
 
 
 def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:

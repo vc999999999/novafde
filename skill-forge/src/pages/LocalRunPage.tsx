@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Check } from 'lucide-react';
 import { listCliCommands } from '../api';
+import PageHeader from '../components/PageHeader';
 import type { CliCommandHelp } from '../types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -17,7 +19,17 @@ function CopyButton({ text }: { text: string }) {
   }, [text]);
 
   return (
-    <Button variant="outline" size="sm" onClick={handleCopy} type="button" className="shrink-0">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      type="button"
+      className={cn(
+        'shrink-0 transition-colors duration-200',
+        copied && 'border-success-border bg-success-dim text-success hover:bg-success-dim',
+      )}
+    >
+      {copied && <Check className="size-3.5 animate-[check-pop_0.3s_ease-out]" strokeWidth={3} />}
       {copied ? '已复制' : '复制'}
     </Button>
   );
@@ -25,7 +37,7 @@ function CopyButton({ text }: { text: string }) {
 
 function CommandCard({ cmd }: { cmd: CliCommandHelp }) {
   return (
-    <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-4">
+    <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-4 transition-colors duration-200 hover:border-white/15">
       <div className="flex justify-between items-start gap-3 mb-3">
         <div>
           <h3 className="text-sm font-semibold my-0 mb-1">{cmd.command}</h3>
@@ -34,7 +46,7 @@ function CommandCard({ cmd }: { cmd: CliCommandHelp }) {
         <CopyButton text={cmd.command} />
       </div>
 
-      <pre className="p-3 rounded-[var(--radius-md)] bg-[#020202] border border-white/6 text-[#f5f5f5] font-mono text-xs leading-[1.6] whitespace-pre-wrap word-break-all m-0 mb-3">{cmd.command}</pre>
+      <pre className="p-3 rounded-[var(--radius-md)] bg-[#060608] border border-white/6 text-[#f5f5f5] font-mono text-xs leading-[1.6] whitespace-pre-wrap word-break-all m-0 mb-3">{cmd.command}</pre>
 
       <div className="flex flex-wrap gap-2 mb-2">
         <Badge className="bg-white/5 text-muted-foreground border border-white/8 text-[11px] tracking-widest uppercase gap-1.5">
@@ -114,14 +126,7 @@ export default function LocalRunPage() {
 
   return (
     <div className="flex flex-col flex-1">
-      <section className="mb-5">
-        <p className="mb-2 text-[12px] tracking-[0.22em] uppercase text-muted-foreground">NovaFDE</p>
-        <h1 className="text-3xl font-semibold leading-tight">本地运行</h1>
-      </section>
-
-      <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
-        按以下顺序执行命令来安装、配置和运行 NovaFDE。每条命令均可复制到终端执行。
-      </p>
+      <PageHeader title="本地运行" sub="安装 → 配置模型 → 启动，命令可直接复制到终端" />
 
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">

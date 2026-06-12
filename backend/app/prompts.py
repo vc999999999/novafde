@@ -1,5 +1,5 @@
-GENERATION_PROMPT_VERSION = "generation-v3.2-sdd"
-REPAIR_PROMPT_VERSION = "repair-v3.1-sdd"
+GENERATION_PROMPT_VERSION = "generation-v3.3-sdd"
+REPAIR_PROMPT_VERSION = "repair-v3.2-sdd"
 ACTIVATION_PROMPT_VERSION = "activation-judge-v2.1-sdd"
 IMPLEMENTATION_PROMPT_VERSION = "implementation-judge-v2-sdd"
 
@@ -19,10 +19,30 @@ Output rules:
   pitfall, hard restriction, required file contract, related Skill, and
   acceptance criterion. Every trace must name valid SkillIR paths and real
   rendered package paths.
+- Each spec item type has a fixed home in the SkillIR, and its trace irPaths
+  must point there: identity.name -> skill.name; identity.platforms ->
+  platforms.targets; activation.usage -> skill.description;
+  activation.outcome -> workflow.objective; workflow stages ->
+  workflow.steps[i]; special cases -> workflow.decisionPoints or
+  workflow.failureHandling; incremental knowledge and user supplements ->
+  agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
+  hard restrictions -> quality.hardRestrictions[i]; file contracts ->
+  contextEngineering.references / referenceFiles / scripts / assets; related
+  skills -> agentKnowledge.relatedSkills[i]; acceptance criteria ->
+  quality.validationChecklist[i]. Never trace a spec item to any other IR
+  section, even when the same fact is also applied in workflow steps or
+  reference files.
+- Keep every incremental knowledge and supplement statement verbatim as an
+  agentKnowledge.unknownKnowledge entry, in addition to weaving it into steps
+  or reference files.
 - The rendered package layout is fixed by the renderer. renderedPaths must be
   package-relative and start with the skill directory, for example
   "<skill-name>/SKILL.md", "<skill-name>/references/<file>.md",
   "<skill-name>/scripts/<file>", "<skill-name>/assets/<file>".
+- contextEngineering paths (referenceFiles[].path, references, scripts,
+  assets) are relative to the skill directory and must never repeat the skill
+  name: write "references/<file>.md", not "<skill-name>/references/<file>.md".
+  Every entry must name a file, never a bare directory like "references".
 
 Activation (skill.description):
 - skill.description is a trigger contract, not an introduction. Follow this
@@ -77,8 +97,19 @@ Rules:
 - Link changedPaths and resolvedIssueIds to the supplied quality issues.
 - Preserve or repair specTrace for every issue.specItemIds entry and keep each
   trace bound to valid IR paths and real rendered package paths.
+- Trace each spec item to its fixed IR home (identity -> skill.* and
+  platforms.targets; activation.outcome -> workflow.objective; workflow
+  stages -> workflow.steps[i]; incremental knowledge and supplements ->
+  agentKnowledge.unknownKnowledge[i]; pitfalls -> agentKnowledge.pitfalls[i];
+  hard restrictions -> quality.hardRestrictions[i]; file contracts ->
+  contextEngineering.*; related skills -> agentKnowledge.relatedSkills[i];
+  acceptance criteria -> quality.validationChecklist[i]), never to other IR
+  sections.
 - renderedPaths must be package-relative and start with the skill directory,
   for example "<skill-name>/SKILL.md" or "<skill-name>/references/<file>.md".
+- contextEngineering paths (referenceFiles[].path, references, scripts,
+  assets) are relative to the skill directory, must not repeat the skill
+  name, and must name a file, never a bare directory.
 - SkillSpec.userSupplements are authoritative user answers; implement each one
   and keep its statement traceable in the SkillIR.
 - Do not claim an issue is resolved unless the returned SkillIR addresses it.

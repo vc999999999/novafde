@@ -21,10 +21,10 @@ export default function ChipSelect({ options, selected, onChange }: Props) {
         <button
           key={opt.value}
           className={cn(
-            'rounded-full px-3.5 py-1.5 text-xs border transition-all cursor-pointer whitespace-nowrap',
+            'rounded-full px-3.5 py-1.5 text-xs border transition-all duration-200 cursor-pointer whitespace-nowrap active:scale-[0.96]',
             selected.includes(opt.value)
-              ? 'bg-accent-dim border-accent-border text-accent'
-              : 'bg-surface border-white/12 text-muted-foreground hover:bg-white/6 hover:text-foreground'
+              ? 'bg-accent-dim border-accent-border text-accent shadow-[0_0_16px_rgba(108,156,255,0.18)]'
+              : 'bg-surface border-white/12 text-muted-foreground hover:border-white/24 hover:bg-white/6 hover:text-foreground hover:-translate-y-px'
           )}
           onClick={() => toggle(opt.value)}
           type="button"

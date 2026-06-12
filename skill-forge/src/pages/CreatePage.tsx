@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import BasicStep from '../components/steps/BasicStep';
 import PurposeStep from '../components/steps/PurposeStep';
 import KnowledgeStep from '../components/steps/KnowledgeStep';
 import SupplementStep from '../components/steps/SupplementStep';
+import PageHeader from '../components/PageHeader';
 import StepIndicator from '../components/StepIndicator';
+import StepRail from '../components/StepRail';
 import FileTree from '../components/FileTree';
 import ValidationReport from '../components/ValidationReport';
-import DownloadCard from '../components/DownloadCard';
 import GenerationLoading from '../components/GenerationLoading';
 import QualityScorePanel from '../components/QualityScorePanel';
 import SupplementDialog from '../components/SupplementDialog';
@@ -31,7 +32,8 @@ import type {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ArrowRight, CircleAlert, CircleCheck, CircleX, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Phase = 'form' | 'generating' | 'result';
@@ -273,20 +275,60 @@ export default function CreatePage({
 
   if (phase === 'form') {
     const stepKey = STEP_KEYS[currentStep];
+    const nextStepKey = currentStep < STEP_KEYS.length - 1 ? STEP_KEYS[currentStep + 1] : null;
 
     return (
       <div className="flex flex-1 flex-col">
-        <section className="mb-5">
-          <p className="mb-2 text-[12px] uppercase tracking-[0.22em] text-muted-foreground">NovaFDE</p>
-          <h1 className="text-3xl font-semibold leading-tight">创建新 Skill</h1>
-        </section>
-
-        <StepIndicator
-          steps={steps}
-          currentStep={currentStep}
-          onStepClick={setCurrentStep}
-          completions={completions}
+        <PageHeader
+          title="创建新 Skill"
+          sub={(
+            <>
+              <span data-numeric className="font-mono text-xs text-tertiary">
+                {String(currentStep + 1).padStart(2, '0')} · {String(STEP_KEYS.length).padStart(2, '0')}
+              </span>
+              <span className="truncate">{STEP_LABELS[stepKey]}</span>
+            </>
+          )}
+          actions={(
+            <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className={cn(
+                'size-1.5 rounded-full transition-colors duration-300',
+                autosaveStatus === 'error'
+                  ? 'bg-warning'
+                  : autosaveStatus === 'saved'
+                    ? 'bg-success'
+                    : autosaveStatus === 'saving'
+                      ? 'bg-accent animate-[saving-pulse_1s_ease-in-out_infinite]'
+                      : 'bg-white/20',
+              )}
+            />
+            <span className={cn(
+              'text-xs transition-colors duration-300',
+              autosaveStatus === 'error'
+                ? 'text-warning'
+                : autosaveStatus === 'saved'
+                  ? 'text-success'
+                  : 'text-tertiary',
+            )}>
+              {autosaveStatus === 'idle' && '自动保存到本地'}
+              {autosaveStatus === 'saving' && '正在保存草稿...'}
+              {autosaveStatus === 'saved' && `已保存 ${lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString() : ''}`}
+              {autosaveStatus === 'error' && '自动保存失败'}
+            </span>
+            </div>
+          )}
         />
+
+        <div className="lg:hidden">
+          <StepIndicator
+            steps={steps}
+            currentStep={currentStep}
+            onStepClick={setCurrentStep}
+            completions={completions}
+          />
+        </div>
 
         {formError && (
           <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -299,14 +341,23 @@ export default function CreatePage({
           </Alert>
         )}
 
-        <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-[1fr_var(--sidebar-width)]">
-          <Card className="flex flex-col border-panel-border bg-panel p-5 shadow-md lg:self-stretch">
-            <div className="mb-5">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+          <StepRail
+            steps={steps}
+            completions={completions}
+            overall={overallCompletion}
+            currentStep={currentStep}
+            onStepClick={setCurrentStep}
+            className="top-[84px] hidden self-start lg:sticky lg:flex"
+          />
+
+          <Card className="flex flex-col border-panel-border bg-panel p-6 shadow-md lg:min-h-[560px]">
+            <div className="mb-6">
               <h2 className="mb-1 text-lg font-semibold">{STEP_LABELS[stepKey]}</h2>
               <p className="text-xs leading-normal text-muted-foreground">{STEP_DESCRIPTIONS[currentStep]}</p>
             </div>
 
-            <div className="flex flex-col">
+            <div key={stepKey} className="animate-step-in flex w-full max-w-[600px] flex-col">
               {stepKey === 'basic' && <BasicStep draft={draft} onUpdate={updateDraft} />}
               {stepKey === 'purpose' && <PurposeStep draft={draft} onUpdatePurpose={updatePurpose} />}
               {stepKey === 'knowledge' && <KnowledgeStep draft={draft} onUpdateKnowledge={updateKnowledge} />}
@@ -328,9 +379,10 @@ export default function CreatePage({
               >
                 上一步
               </Button>
-              {currentStep < STEP_KEYS.length - 1 ? (
+              {nextStepKey ? (
                 <Button onClick={() => setCurrentStep((step) => step + 1)} type="button">
-                  下一步
+                  下一步：{STEP_LABELS[nextStepKey]}
+                  <ArrowRight className="size-4" />
                 </Button>
               ) : (
                 <Button
@@ -347,63 +399,6 @@ export default function CreatePage({
               )}
             </div>
           </Card>
-
-          <div className="top-7 flex flex-col gap-3 self-stretch lg:sticky">
-            <Card className="border-panel-border bg-panel p-4 shadow-md">
-              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">必填完整度</p>
-              <div className="mt-2 flex flex-col gap-2">
-                {STEP_KEYS.map((key, index) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span className="min-w-[72px] text-xs text-muted-foreground">{STEP_LABELS[key]}</span>
-                    <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/6">
-                      <div
-                        className="h-full rounded-full transition-all duration-300"
-                        style={{
-                          width: `${completions[index]}%`,
-                          background: completions[index] >= 80
-                            ? 'var(--color-success)'
-                            : 'var(--color-accent)',
-                        }}
-                      />
-                    </div>
-                    <span className="min-w-[28px] whitespace-nowrap text-right font-mono text-[12px] text-tertiary">
-                      {completions[index]}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="border-panel-border bg-panel p-4 shadow-md">
-              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">总完成度</p>
-              <Progress value={overallCompletion} className="mt-2 h-1.5" />
-              <p className="mt-2 text-center text-xl font-semibold">{overallCompletion}%</p>
-            </Card>
-
-            <Card className="border-panel-border bg-panel p-4 shadow-md">
-              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">生成策略</p>
-              <p className="text-xs leading-snug text-muted-foreground">
-                Agent 生成结构化 Skill IR，经过确定性校验、触发评测和实现评测后，最多定向优化三轮。
-              </p>
-            </Card>
-
-            <Card className="border-panel-border bg-panel p-4 shadow-md">
-              <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">自动保存</p>
-              <p className={cn(
-                'text-xs leading-snug',
-                autosaveStatus === 'error'
-                  ? 'text-warning'
-                  : autosaveStatus === 'saved'
-                    ? 'text-success'
-                    : 'text-muted-foreground',
-              )}>
-                {autosaveStatus === 'idle' && '开始填写后会保存到本地 SQLite'}
-                {autosaveStatus === 'saving' && '正在保存草稿...'}
-                {autosaveStatus === 'saved' && `已保存 ${lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString() : ''}`}
-                {autosaveStatus === 'error' && '自动保存失败，请检查本地后端'}
-              </p>
-            </Card>
-          </div>
         </div>
       </div>
     );
@@ -457,8 +452,8 @@ export default function CreatePage({
   if (!generation) {
     return (
       <div className="flex flex-1 flex-col">
-        <h1 className="mb-5 text-3xl font-semibold">生成失败</h1>
-        <Card className="max-w-[720px] border-panel-border bg-panel p-5 shadow-md">
+        <PageHeader title="创建新 Skill" sub="生成失败" />
+        <Card className="animate-step-in max-w-[720px] border-panel-border bg-panel p-5 shadow-md">
           <Alert className="border-warning-border bg-warning-dim text-warning">
             <AlertDescription>{generationError ?? '生成任务没有返回结果。'}</AlertDescription>
           </Alert>
@@ -482,15 +477,70 @@ export default function CreatePage({
         ? '任务已中断'
         : '生成失败';
 
+  const StatusIcon = generation.status === 'succeeded'
+    ? CircleCheck
+    : generation.status === 'failed'
+      ? CircleX
+      : CircleAlert;
+  const statusTone = generation.status === 'succeeded'
+    ? 'border-success-border bg-success-dim text-success'
+    : generation.status === 'failed'
+      ? 'border-error-border bg-error-dim text-error'
+      : 'border-warning-border bg-warning-dim text-warning';
+  const downloadInfo = generation.downloadInfo;
+
   return (
     <div className="flex flex-1 flex-col">
-      <section className="mb-5">
-        <p className="mb-2 text-[12px] uppercase tracking-[0.22em] text-muted-foreground">NovaFDE</p>
-        <h1 className="text-3xl font-semibold leading-tight">{title}</h1>
-      </section>
+      <PageHeader title="创建新 Skill" sub="生成结果" />
+
+      <Card className="animate-step-in mb-3 flex flex-row flex-wrap items-center justify-between gap-x-6 gap-y-4 border-panel-border bg-panel p-5 shadow-md">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-full border', statusTone)}>
+            <StatusIcon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold leading-tight">{title}</h2>
+            {downloadable && downloadInfo ? (
+              <p className="mt-1 truncate font-mono text-xs text-muted-foreground" data-numeric>
+                {downloadInfo.packageName} · v{downloadInfo.version} · {downloadInfo.fileCount} 文件 · {downloadInfo.size}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {generation.status === 'interrupted' ? '任务在完成前被中断' : '可返回编辑后重新生成'}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          {generation.qualityReport?.overallScore != null && (
+            <div className="flex flex-col items-center">
+              <span data-numeric className="font-mono text-2xl font-semibold leading-none">
+                {Math.round(generation.qualityReport.overallScore)}
+              </span>
+              <span className="mt-1 text-[10px] tracking-[0.16em] text-tertiary">总分</span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {downloadable && downloadInfo && (
+              <Button
+                type="button"
+                onClick={() => window.location.assign(toGenerationDownloadUrl(generation.id))}
+              >
+                <Download className="size-4" />
+                下载 zip
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleBackToForm} type="button">返回编辑</Button>
+            <Button variant="destructive" onClick={handleNewDraft} type="button">新建草稿</Button>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-[1fr_var(--sidebar-width)]">
-        <div className="flex flex-col gap-3">
+        <div
+          className="animate-step-in flex flex-col gap-3"
+          style={{ '--enter-delay': '60ms' } as CSSProperties}
+        >
           {generationError && (
             <Alert className="border-warning-border bg-warning-dim text-warning">
               <AlertDescription>{generationError}</AlertDescription>
@@ -504,24 +554,38 @@ export default function CreatePage({
           />
 
           <Card className="border-panel-border bg-panel p-5 shadow-md">
-            <p className="mb-4 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">文件结构</p>
-            {generation.files.length > 0
-              ? <FileTree files={generation.files} />
-              : <p className="py-8 text-center text-sm text-muted-foreground">暂无文件输出</p>}
-          </Card>
-
-          <Card className="border-panel-border bg-panel p-5 shadow-md">
-            <p className="mb-4 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">SKILL.md 预览</p>
-            <pre className="m-0 max-h-[440px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#020202] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
-              {generation.skillMd || '暂无预览'}
-            </pre>
-          </Card>
-
-          <Card className="border-panel-border bg-panel p-5 shadow-md">
-            <p className="mb-4 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">确定性校验</p>
-            {generation.validation.length > 0
-              ? <ValidationReport items={generation.validation} />
-              : <p className="py-8 text-center text-sm text-muted-foreground">暂无校验结果</p>}
+            <Tabs defaultValue="files">
+              <TabsList className="mb-4 h-auto gap-1 rounded-full border border-panel-border bg-surface px-[3px] py-[3px]">
+                {[
+                  { value: 'files', label: '文件结构' },
+                  { value: 'skillmd', label: 'SKILL.md 预览' },
+                  { value: 'validation', label: '确定性校验' },
+                ].map((tab) => (
+                  <TabsTrigger
+                    key={tab.value}
+                    value={tab.value}
+                    className="flex-none rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-white/12 data-[state=active]:text-foreground"
+                  >
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <TabsContent value="files" className="animate-step-in">
+                {generation.files.length > 0
+                  ? <FileTree files={generation.files} />
+                  : <p className="py-8 text-center text-sm text-muted-foreground">暂无文件输出</p>}
+              </TabsContent>
+              <TabsContent value="skillmd" className="animate-step-in">
+                <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
+                  {generation.skillMd || '暂无预览'}
+                </pre>
+              </TabsContent>
+              <TabsContent value="validation" className="animate-step-in">
+                {generation.validation.length > 0
+                  ? <ValidationReport items={generation.validation} />
+                  : <p className="py-8 text-center text-sm text-muted-foreground">暂无校验结果</p>}
+              </TabsContent>
+            </Tabs>
           </Card>
 
           {generation.errorMessage && (
@@ -529,22 +593,13 @@ export default function CreatePage({
               <AlertDescription>{generation.errorMessage}</AlertDescription>
             </Alert>
           )}
-
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleBackToForm} type="button">返回编辑</Button>
-            <Button variant="destructive" onClick={handleNewDraft} type="button">新建草稿</Button>
-          </div>
         </div>
 
-        <div className="top-7 flex flex-col gap-3 self-stretch lg:sticky">
+        <div
+          className="animate-step-in top-[72px] flex flex-col gap-3 self-stretch lg:sticky"
+          style={{ '--enter-delay': '120ms' } as CSSProperties}
+        >
           {generation.qualityReport && <QualityScorePanel report={generation.qualityReport} />}
-
-          {downloadable && generation.downloadInfo && (
-            <DownloadCard
-              info={generation.downloadInfo}
-              onDownload={() => window.location.assign(toGenerationDownloadUrl(generation.id))}
-            />
-          )}
 
           <Card className="border-panel-border bg-panel p-4 shadow-md">
             <p className="mb-2 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">生成统计</p>

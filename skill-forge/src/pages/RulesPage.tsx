@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { getDiagnosticMetrics, listErrorPatterns, listRules } from '../api';
+import PageHeader from '../components/PageHeader';
 import type { DiagnosticMetrics, ErrorPattern, QualityRule } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -54,14 +55,10 @@ export default function RulesPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <section className="mb-5">
-        <p className="mb-2 text-[length:var(--text-xs)] tracking-[0.22em] uppercase text-text-secondary">
-          NovaFDE
-        </p>
-        <h1 className="text-[length:var(--text-2xl)] leading-tight font-semibold">
-          质量规则
-        </h1>
-      </section>
+      <PageHeader
+        title="质量规则"
+        sub={loading ? '加载中' : `${rules.length} 条规则 · 生成时自动应用`}
+      />
 
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -70,8 +67,13 @@ export default function RulesPage() {
       )}
 
       {loading && (
-        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground text-[length:var(--text-base)]">
-          正在从后端加载质量规则...
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i} className={cn(PANEL_CARD_CLASS, 'animate-pulse gap-2 p-4')}>
+              <div className="h-3 w-1/2 rounded bg-white/5" />
+              <div className="h-6 w-1/3 rounded bg-white/8" />
+            </Card>
+          ))}
         </div>
       )}
 
@@ -93,10 +95,14 @@ export default function RulesPage() {
               ['平均修复轮次', metrics.averageRepairRounds],
               ['平均提分', metrics.averageScoreImprovement],
               ['补充触发率', `${metrics.supplementPromptRate}%`],
-            ].map(([label, value]) => (
-              <Card key={label} className={cn(PANEL_CARD_CLASS, 'p-4')}>
+            ].map(([label, value], index) => (
+              <Card
+                key={label}
+                className={cn(PANEL_CARD_CLASS, 'animate-step-in p-4')}
+                style={{ '--enter-delay': `${index * 30}ms` } as CSSProperties}
+              >
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 font-mono text-lg font-semibold">{value}</p>
+                <p data-numeric className="mt-1 font-mono text-lg font-semibold">{value}</p>
               </Card>
             ))}
           </div>
@@ -154,7 +160,7 @@ export default function RulesPage() {
             {rules
               .filter((rule) => rule.category === category)
               .map((rule) => (
-                <Card key={rule.id} className={cn(PANEL_CARD_CLASS, 'py-4')}>
+                <Card key={rule.id} className={cn(PANEL_CARD_CLASS, 'py-4 transition-colors duration-200 hover:border-white/15')}>
                   <CardHeader className="pb-1">
                     <div className="flex w-full items-start justify-between gap-3">
                       <CardTitle className="text-[length:var(--text-base)] font-semibold leading-tight">
@@ -214,9 +220,6 @@ export default function RulesPage() {
         </section>
       )}
 
-      <p className="mt-8 text-center text-[length:var(--text-sm)] text-text-tertiary">
-        规则在生成时由后端自动应用于校验流程
-      </p>
     </div>
   );
 }

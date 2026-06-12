@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { History } from 'lucide-react';
 import { listHistory, startGeneration } from '../api';
+import PageHeader from '../components/PageHeader';
 import type {
   HistoryItem,
   HistoryItemStatus,
@@ -99,14 +101,10 @@ export default function HistoryPage({
 
   return (
     <div className="flex flex-1 flex-col">
-      <section className="mb-5">
-        <p className="mb-2 text-[length:var(--text-xs)] tracking-[0.22em] uppercase text-text-secondary">
-          NovaFDE
-        </p>
-        <h1 className="text-[length:var(--text-2xl)] leading-tight font-semibold">
-          历史记录
-        </h1>
-      </section>
+      <PageHeader
+        title="历史记录"
+        sub={loading ? '加载中' : `共 ${items.length} 条记录`}
+      />
 
       {error && (
         <Alert className="mb-4 border-warning-border bg-warning-dim text-warning">
@@ -126,19 +124,38 @@ export default function HistoryPage({
       )}
 
       {loading && (
-        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground text-[length:var(--text-base)]">
-          正在从后端加载历史记录...
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3 max-md:grid-cols-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i} className={cn(PANEL_CARD_CLASS, 'animate-pulse gap-4 p-5')}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/3 rounded bg-white/8" />
+                  <div className="h-3 w-1/2 rounded bg-white/5" />
+                </div>
+                <div className="h-5 w-16 rounded-full bg-white/6" />
+              </div>
+              <div className="flex gap-2">
+                <div className="h-6 w-20 rounded-full bg-white/5" />
+                <div className="h-6 w-16 rounded-full bg-white/5" />
+              </div>
+              <div className="h-9 w-full rounded-md bg-white/6" />
+            </Card>
+          ))}
         </div>
       )}
 
       {!loading && items.length === 0 && (
-        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground text-[length:var(--text-base)]">
-          暂无历史记录
+        <div className="animate-step-in flex flex-col items-center gap-3 rounded-[var(--radius-md)] border border-dashed border-white/10 px-5 py-16 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full border border-white/10 bg-surface">
+            <History className="size-5 text-tertiary" />
+          </div>
+          <p className="text-sm text-muted-foreground">还没有历史记录</p>
+          <p className="text-xs text-tertiary">在「创建」页完成第一次生成后，草稿和结果都会出现在这里</p>
         </div>
       )}
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3 max-md:grid-cols-1">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const statusInfo = STATUS_MAP[item.status];
           const isBusy = busyId === item.id;
           const opensExistingGeneration = item.status !== 'draft' && item.generationId;
@@ -178,8 +195,9 @@ export default function HistoryPage({
               key={item.id}
               className={cn(
                 PANEL_CARD_CLASS,
-                'cursor-pointer transition-[transform,border-color] duration-180 ease-in-out hover:-translate-y-0.5 hover:border-panel-hover',
+                'animate-step-in cursor-pointer transition-[transform,border-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:border-panel-hover hover:shadow-[0_12px_40px_rgba(4,8,22,0.5)]',
               )}
+              style={{ '--enter-delay': `${Math.min(index, 8) * 40}ms` } as CSSProperties}
             >
               <CardHeader className="pb-0">
                 <div className="flex w-full items-start justify-between gap-3">
@@ -250,9 +268,11 @@ export default function HistoryPage({
         })}
       </div>
 
-      <p className="mt-8 text-center text-[length:var(--text-sm)] text-text-tertiary">
-        共 {items.length} 条记录 / 数据来自本地后端
-      </p>
+      {items.length > 0 && (
+        <p className="mt-8 text-center text-[length:var(--text-sm)] text-text-tertiary">
+          数据来自本地后端
+        </p>
+      )}
     </div>
   );
 }

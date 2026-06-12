@@ -23,21 +23,53 @@ def render_skill_package(ir: SkillIR, package_root: Path) -> Path:
     skill_dir.mkdir(parents=True, exist_ok=True)
 
     _write_skill_md(skill_dir / "SKILL.md", ir)
+    authored_files = [
+        (ensure_safe_relative_path(item.path), item)
+        for item in ir.contextEngineering.referenceFiles
+    ]
+    reference_paths = [
+        ensure_safe_relative_path(path) for path in ir.contextEngineering.references
+    ]
+    script_paths = [
+        ensure_safe_relative_path(path) for path in ir.contextEngineering.scripts
+    ]
+    asset_paths = [
+        ensure_safe_relative_path(path) for path in ir.contextEngineering.assets
+    ]
+    planned = {
+        *(path for path, _ in authored_files),
+        *reference_paths,
+        *script_paths,
+        *asset_paths,
+    }
+
     authored_paths: set[str] = set()
-    for reference_file in ir.contextEngineering.referenceFiles:
-        safe_path = ensure_safe_relative_path(reference_file.path)
+    for safe_path, reference_file in authored_files:
+        if _is_directory_path(safe_path, planned):
+            continue
         authored_paths.add(safe_path)
         _write_authored_reference(skill_dir / safe_path, reference_file, ir)
-    for relative_path in ir.contextEngineering.references:
-        safe_path = ensure_safe_relative_path(relative_path)
-        if safe_path in authored_paths:
+    for safe_path in reference_paths:
+        if safe_path in authored_paths or _is_directory_path(safe_path, planned):
             continue
         _write_reference(skill_dir / safe_path, ir)
-    for relative_path in ir.contextEngineering.scripts:
-        _write_script_readme(skill_dir / ensure_safe_relative_path(relative_path))
-    for relative_path in ir.contextEngineering.assets:
-        _write_asset_template(skill_dir / ensure_safe_relative_path(relative_path), ir)
+    for safe_path in script_paths:
+        if _is_directory_path(safe_path, planned):
+            continue
+        _write_script_readme(skill_dir / safe_path)
+    for safe_path in asset_paths:
+        if _is_directory_path(safe_path, planned):
+            continue
+        _write_asset_template(skill_dir / safe_path, ir)
     return skill_dir
+
+
+def _is_directory_path(path: str, planned: set[str]) -> bool:
+    """A path that is an ancestor of another planned file is a directory, not
+    a writable file; models occasionally emit such entries and writing them
+    would fail with EISDIR/EACCES once the real files create the directory."""
+    prefix = f"{path}/"
+    return any(other.startswith(prefix) for other in planned if other != path)
 
 
 def build_file_tree(root: Path) -> list[FileNode]:
