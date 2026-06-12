@@ -10,6 +10,9 @@ from app.models import FileNode, ReferenceFile, SkillIR
 from app.utils import ensure_safe_relative_path, format_size
 
 
+RENDERER_VERSION = "1.1"
+
+
 def render_skill_package(ir: SkillIR, package_root: Path) -> Path:
     if package_root.exists():
         # Safety: refuse to remove root-like paths or suspiciously short paths
@@ -116,6 +119,21 @@ def _write_skill_md(path: Path, ir: SkillIR) -> None:
         lines.extend(["## Failure Handling", ""])
         lines.extend(f"- {item}" for item in ir.workflow.failureHandling)
         lines.append("")
+
+    if ir.workflow.skillHandoffs:
+        lines.extend(["## Skill Orchestration", ""])
+        for handoff in ir.workflow.skillHandoffs:
+            lines.extend(
+                [
+                    f"### `{handoff.skill}`",
+                    "",
+                    f"- **Invoke when:** {handoff.whenToInvoke}",
+                    f"- **Input:** {handoff.input}",
+                    f"- **Expected output:** {handoff.expectedOutput}",
+                    f"- **Failure handling:** {handoff.failureHandling}",
+                    "",
+                ]
+            )
 
     lines.extend(["## Context Loading", ""])
     for assumption in ir.contextEngineering.filesystemAssumptions:

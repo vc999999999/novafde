@@ -9,6 +9,15 @@ def test_sanitize_skill_name_creates_filesystem_safe_slug() -> None:
     assert sanitize_skill_name("   ") == "untitled-skill"
 
 
+def test_sanitize_skill_name_truncates_safely_to_official_limit() -> None:
+    result = sanitize_skill_name("a" * 50 + "-" + "b" * 50)
+
+    assert len(result) <= 64
+    assert not result.startswith("-")
+    assert not result.endswith("-")
+    assert "--" not in result
+
+
 def test_ensure_safe_relative_path_blocks_traversal_and_absolute_paths() -> None:
     assert ensure_safe_relative_path("references/domain-guide.md") == "references/domain-guide.md"
 

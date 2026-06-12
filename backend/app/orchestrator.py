@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -20,6 +19,9 @@ from app.models import (
     QualityIssue,
     SkillBrief,
     SkillIR,
+    SkillSpec,
+    SkillSpecRevision,
+    SupplementSpecItem,
     UserQuestion,
     UserSupplement,
     ValidationItem,
@@ -32,9 +34,11 @@ from app.packager import (
     write_quality_report,
     write_validation_report,
 )
+from app.prompts import GENERATION_PROMPT_VERSION
 from app.quality import QualityPolicy, aggregate_quality_report, select_best_attempt
 from app.renderer import build_file_tree, render_skill_package
 from app.settings import Settings
+from app.spec_builder import build_skill_spec, enforce_spec_contract
 from app.state_machine import assert_generation_transition
 from app.storage import Storage
 from app.utils import (
@@ -85,6 +89,14 @@ class QualityOrchestrator:
         if generation.targetPlatformsOverride:
             brief.targetPlatforms = list(generation.targetPlatformsOverride)
         generation.normalizedBrief = brief.model_dump(mode="json")
+        generation.promptBundleVersion = GENERATION_PROMPT_VERSION
+        generation.qualityPolicyVersion = self.policy.version
+        spec = build_skill_spec(brief, revision=1)
+        self._append_skill_spec(
+            generation,
+            spec,
+            created_at=generation.startedAt,
+        )
         self.storage.save_generation(generation)
         if blocking_count(brief_validation):
             generation.validation = brief_validation
@@ -130,7 +142,7 @@ class QualityOrchestrator:
             (ir, metadata), generation_provider = self._call_with_provider_fallback(
                 generation,
                 "generation",
-                lambda provider: self.agents.generate(brief, provider),
+                lambda provider: self.agents.generate(brief, spec, provider),
             )
         except Exception as exc:
             return self._fail(
@@ -141,6 +153,7 @@ class QualityOrchestrator:
         return self._process_candidates(
             generation=generation,
             brief=brief,
+            spec=spec,
             original_ir=ir,
             current_ir=ir,
             start_round=0,
@@ -178,6 +191,7 @@ class QualityOrchestrator:
             if item.get("issueId")
         }
         additions: list[str] = []
+        new_supplement_items: list[SupplementSpecItem] = []
         for question in generation.userQuestions:
             answer = answer_by_issue.get(question.issueId)
             skipped = skip or answer is None
@@ -199,7 +213,15 @@ class QualityOrchestrator:
                     answer_text = "、".join(normalized_answer)
                 else:
                     answer_text = normalized_answer or ""
-                additions.append(f"[{question.question}] {answer_text}")
+                addition = f"[{question.question}] {answer_text}"
+                additions.append(addition)
+                new_supplement_items.append(
+                    SupplementSpecItem(
+                        id=f"supplement.{question.issueId}",
+                        question=question.question,
+                        statement=addition,
+                    )
+                )
 
         if additions:
             current = draft.supplement.content.strip()
@@ -222,6 +244,28 @@ class QualityOrchestrator:
         brief = _redact_brief(brief)
         if generation.targetPlatformsOverride:
             brief.targetPlatforms = list(generation.targetPlatformsOverride)
+        previous_spec = self._current_spec(generation)
+        if new_supplement_items or previous_spec is None:
+            # Only genuine user input creates a new immutable spec revision;
+            # a skipped supplement keeps the current contract unchanged.
+            carried = {
+                item.id: item
+                for item in (previous_spec.userSupplements if previous_spec else [])
+            }
+            for item in new_supplement_items:
+                carried[item.id] = item
+            spec = build_skill_spec(
+                brief,
+                revision=(generation.skillSpecRevision or 0) + 1,
+                source_issue_ids=[
+                    item.id.removeprefix("supplement.")
+                    for item in new_supplement_items
+                ],
+                supplements=list(carried.values()),
+            )
+            self._append_skill_spec(generation, spec, created_at=now_ms())
+        else:
+            spec = previous_spec
         attempts = self.storage.list_attempts(run_id)
         reports = {item.attemptId: item for item in self.storage.list_quality_reports(run_id)}
         if not attempts:
@@ -256,6 +300,7 @@ class QualityOrchestrator:
                 "repair",
                 lambda provider: self.agents.repair(
                     brief=brief,
+                    spec=spec,
                     original_ir=original_ir,
                     current_ir=current_ir,
                     best_ir=current_ir,
@@ -280,6 +325,7 @@ class QualityOrchestrator:
         return self._process_candidates(
             generation=generation,
             brief=brief,
+            spec=spec,
             original_ir=original_ir,
             current_ir=repaired.skillIR,
             start_round=next_round,
@@ -294,6 +340,7 @@ class QualityOrchestrator:
         *,
         generation: GenerationResult,
         brief: SkillBrief,
+        spec: SkillSpec,
         original_ir: SkillIR,
         current_ir: SkillIR,
         start_round: int,
@@ -308,6 +355,7 @@ class QualityOrchestrator:
                 attempt, report, validation_items = self._evaluate_candidate(
                     generation=generation,
                     brief=brief,
+                    spec=spec,
                     ir=current_ir,
                     round_number=round_number,
                     parent_attempt_id=parent_attempt_id,
@@ -434,6 +482,7 @@ class QualityOrchestrator:
                     "repair",
                     lambda provider: self.agents.repair(
                         brief=brief,
+                        spec=spec,
                         original_ir=original_ir,
                         current_ir=best_ir,
                         best_ir=best_ir,
@@ -464,6 +513,7 @@ class QualityOrchestrator:
         *,
         generation: GenerationResult,
         brief: SkillBrief,
+        spec: SkillSpec,
         ir: SkillIR,
         round_number: int,
         parent_attempt_id: str | None,
@@ -472,6 +522,7 @@ class QualityOrchestrator:
         input_issue_ids: list[str],
     ) -> tuple[GenerationAttempt, QualityEvaluationReport, list[ValidationItem]]:
         candidate_started = time.perf_counter()
+        ir = enforce_spec_contract(ir, spec)
         attempt_id = make_id("attempt")
         package_root = (
             self.settings.artifact_root
@@ -499,7 +550,7 @@ class QualityOrchestrator:
             skill_ir_sha256,
             activation_signature,
             implementation_signature,
-        ) = _evaluation_signatures(brief, ir, file_paths)
+        ) = _evaluation_signatures(brief, spec, ir, file_paths)
         previous_attempts = self.storage.list_attempts(generation.id)
         previous_reports = {
             item.attemptId: item
@@ -527,6 +578,7 @@ class QualityOrchestrator:
             package_root,
             ir,
             brief,
+            spec,
         )
         has_blocker = any(
             issue.severity in {"security_blocker", "structure_blocker"}
@@ -566,6 +618,8 @@ class QualityOrchestrator:
             activationReusedFromAttemptId=activation_reused_from,
             implementationReusedFromAttemptId=implementation_reused_from,
             createdAt=now_ms(),
+            skillSpecRevision=spec.revision,
+            skillSpecSha256=generation.skillSpecSha256,
         )
         self.storage.save_attempt(attempt)
 
@@ -607,6 +661,7 @@ class QualityOrchestrator:
                         "activation-evaluation",
                         lambda provider: self.agents.evaluate_activation(
                             brief,
+                            spec,
                             ir,
                             provider,
                         ),
@@ -618,6 +673,7 @@ class QualityOrchestrator:
                         "implementation-evaluation",
                         lambda provider: self.agents.evaluate_implementation(
                             brief,
+                            spec,
                             ir,
                             (package_root / ir.skill.name / "SKILL.md").read_text(
                                 encoding="utf-8"
@@ -660,6 +716,7 @@ class QualityOrchestrator:
                     "activation-evaluation",
                     lambda provider: self.agents.evaluate_activation(
                         brief,
+                        spec,
                         ir,
                         provider,
                     ),
@@ -686,6 +743,7 @@ class QualityOrchestrator:
                     "implementation-evaluation",
                     lambda provider: self.agents.evaluate_implementation(
                         brief,
+                        spec,
                         ir,
                         (package_root / ir.skill.name / "SKILL.md").read_text(
                             encoding="utf-8"
@@ -787,7 +845,25 @@ class QualityOrchestrator:
             shutil.rmtree(final_root)
         final_root.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_root, final_root)
-        validation_items, _issues, _score = evaluate_validation(final_root, ir, self._brief(generation))
+        # Validate against the spec revision this candidate was generated and
+        # evaluated under; a newer revision created by a later supplement must
+        # not retroactively fail an older, already-passing candidate.
+        spec_entry = self._spec_entry_for_revision(
+            generation, attempt.skillSpecRevision
+        )
+        attempt_spec = spec_entry.spec if spec_entry else None
+        validation_items, _issues, _score = evaluate_validation(
+            final_root,
+            ir,
+            self._brief(generation),
+            attempt_spec,
+        )
+        if blocking_count(validation_items):
+            return self._fail(
+                generation,
+                "FINAL_VALIDATION_FAILED",
+                "最终包未通过 SkillSpec 或官方 Agent Skills 校验。",
+            )
         write_validation_report(final_root, validation_items)
         write_quality_report(
             final_root,
@@ -802,6 +878,8 @@ class QualityOrchestrator:
             validation_items,
             report,
             selection_reason=generation.finalSelectionReason,
+            skill_spec=attempt_spec,
+            skill_spec_sha256=spec_entry.sha256 if spec_entry else None,
         )
         score_label = round(report.overallScore or 0)
         zip_name = (
@@ -1101,6 +1179,46 @@ class QualityOrchestrator:
             raise ValueError("Generation not found")
         return generation
 
+    def _append_skill_spec(
+        self,
+        generation: GenerationResult,
+        spec: SkillSpec,
+        *,
+        created_at: int,
+    ) -> None:
+        payload = spec.model_dump(mode="json")
+        spec_sha256 = sha256_json(payload)
+        generation.skillSpecRevisions.append(
+            SkillSpecRevision(
+                revision=spec.revision,
+                sha256=spec_sha256,
+                spec=spec,
+                createdAt=created_at,
+                sourceIssueIds=list(spec.sourceIssueIds),
+            )
+        )
+        generation.skillSpecAvailable = True
+        generation.skillSpecRevision = spec.revision
+        generation.skillSpecSha256 = spec_sha256
+
+    def _current_spec(self, generation: GenerationResult) -> SkillSpec | None:
+        if not generation.skillSpecRevisions:
+            return None
+        return generation.skillSpecRevisions[-1].spec
+
+    def _spec_entry_for_revision(
+        self,
+        generation: GenerationResult,
+        revision: int | None,
+    ) -> SkillSpecRevision | None:
+        if not generation.skillSpecRevisions:
+            return None
+        if revision is not None:
+            for entry in reversed(generation.skillSpecRevisions):
+                if entry.revision == revision:
+                    return entry
+        return generation.skillSpecRevisions[-1]
+
     def _transition(
         self,
         generation: GenerationResult,
@@ -1222,6 +1340,7 @@ def _redact_brief(brief: SkillBrief) -> SkillBrief:
 
 def _evaluation_signatures(
     brief: SkillBrief,
+    spec: SkillSpec,
     ir: SkillIR,
     file_paths: list[str],
 ) -> tuple[str, str, str]:
@@ -1236,11 +1355,13 @@ def _evaluation_signatures(
                 "usage": brief.usage,
                 "desiredOutcome": brief.desiredOutcome,
                 "relatedSkills": brief.relatedSkills,
+                "skillSpec": spec.model_dump(mode="json"),
             }
         ),
         sha256_json(
             {
                 "brief": brief.model_dump(mode="json"),
+                "skillSpec": spec.model_dump(mode="json"),
                 "skillIRWithoutDescription": implementation_ir.model_dump(mode="json"),
                 "filePaths": file_paths,
             }

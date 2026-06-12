@@ -11,7 +11,9 @@ from app.models import (
     RepairAgentResult,
     SkillBrief,
     SkillIR,
+    SkillSpec,
 )
+from app.creator_skill import load_creator_skill
 from app.prompts import (
     ACTIVATION_INSTRUCTIONS,
     ACTIVATION_PROMPT_VERSION,
@@ -29,6 +31,7 @@ class SkillAgentRuntime(Protocol):
     def generate(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         provider: ModelProviderConfig,
     ) -> tuple[SkillIR, AgentCallMetadata]:
         ...
@@ -37,6 +40,7 @@ class SkillAgentRuntime(Protocol):
         self,
         *,
         brief: SkillBrief,
+        spec: SkillSpec,
         original_ir: SkillIR,
         current_ir: SkillIR,
         best_ir: SkillIR,
@@ -53,6 +57,7 @@ class SkillAgentRuntime(Protocol):
     def evaluate_activation(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         ir: SkillIR,
         provider: ModelProviderConfig,
     ) -> tuple[JudgeEvaluation, AgentCallMetadata]:
@@ -61,6 +66,7 @@ class SkillAgentRuntime(Protocol):
     def evaluate_implementation(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         ir: SkillIR,
         rendered_skill_md: str,
         file_paths: list[str],
@@ -76,22 +82,36 @@ class PydanticSkillAgents:
     def generate(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         provider: ModelProviderConfig,
     ) -> tuple[SkillIR, AgentCallMetadata]:
+        creator = load_creator_skill()
+        payload = {
+            "skillSpec": spec.model_dump(mode="json"),
+            "skillBrief": brief.model_dump(mode="json"),
+            "creatorSkillVersion": creator.version,
+            "creatorSkillSha256": creator.sha256,
+        }
         ir, metadata = self.runtime.run_structured(
             provider=provider,
             role="generation",
-            instructions=GENERATION_INSTRUCTIONS,
-            prompt=f"Create a SkillIR from this SkillBrief:\n{brief.model_dump_json(indent=2)}",
+            instructions=(
+                f"{GENERATION_INSTRUCTIONS}\n\n"
+                "<skill_creator_methodology>\n"
+                f"{creator.content}\n"
+                "</skill_creator_methodology>"
+            ),
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
             output_type=SkillIR,
             prompt_version=GENERATION_PROMPT_VERSION,
         )
-        return restore_authoritative_facts(ir, brief), metadata
+        return restore_authoritative_facts(ir, brief, spec), metadata
 
     def repair(
         self,
         *,
         brief: SkillBrief,
+        spec: SkillSpec,
         original_ir: SkillIR,
         current_ir: SkillIR,
         best_ir: SkillIR,
@@ -105,6 +125,7 @@ class PydanticSkillAgents:
     ) -> tuple[RepairAgentResult, AgentCallMetadata]:
         payload = {
             "round": round_number,
+            "skillSpec": spec.model_dump(mode="json"),
             "brief": brief.model_dump(mode="json"),
             "originalSkillIR": original_ir.model_dump(mode="json"),
             "currentSkillIR": current_ir.model_dump(mode="json"),
@@ -123,20 +144,20 @@ class PydanticSkillAgents:
             output_type=RepairAgentResult,
             prompt_version=REPAIR_PROMPT_VERSION,
         )
-        result.skillIR = restore_authoritative_facts(result.skillIR, brief)
+        result.skillIR = restore_authoritative_facts(result.skillIR, brief, spec)
         return result, metadata
 
     def evaluate_activation(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         ir: SkillIR,
         provider: ModelProviderConfig,
     ) -> tuple[JudgeEvaluation, AgentCallMetadata]:
         payload = {
             "skillName": ir.skill.name,
             "description": ir.skill.description,
-            "usage": brief.usage,
-            "desiredOutcome": brief.desiredOutcome,
+            "activationContract": spec.activationContract.model_dump(mode="json"),
             "relatedSkills": brief.relatedSkills,
         }
         evaluation, metadata = self.runtime.run_structured(
@@ -152,6 +173,7 @@ class PydanticSkillAgents:
     def evaluate_implementation(
         self,
         brief: SkillBrief,
+        spec: SkillSpec,
         ir: SkillIR,
         rendered_skill_md: str,
         file_paths: list[str],
@@ -159,7 +181,11 @@ class PydanticSkillAgents:
     ) -> tuple[JudgeEvaluation, AgentCallMetadata]:
         payload = {
             "brief": brief.model_dump(mode="json"),
+            "skillSpec": spec.model_dump(mode="json"),
             "skillIR": ir.model_dump(mode="json"),
+            "specTrace": [
+                item.model_dump(mode="json") for item in ir.specTrace
+            ],
             "renderedSkillMd": rendered_skill_md,
             "filePaths": file_paths,
         }
@@ -191,7 +217,11 @@ def _coerce_dimension(
     return JudgeEvaluation.model_validate(payload)
 
 
-def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
+def restore_authoritative_facts(
+    ir: SkillIR,
+    brief: SkillBrief,
+    spec: SkillSpec,
+) -> SkillIR:
     """Enforce identity facts and guarantee user-supplied facts survive generation.
 
     The model is allowed to rephrase, reorganize, and expand user knowledge.
@@ -201,19 +231,31 @@ def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
     floor is enforced by the validator instead of verbatim overwrites.
     """
     restored = ir.model_copy(deep=True)
-    restored.skill.name = brief.skillName
-    restored.skill.language = brief.outputLanguage
-    restored.platforms.targets = list(brief.targetPlatforms)
-    model_rules = [
+    restored.schemaVersion = "1.1"
+    restored.skill.name = spec.identity.skillName
+    restored.skill.language = spec.identity.outputLanguage
+    restored.platforms.targets = list(spec.identity.targetPlatforms)
+    model_only_rules = [
         rule
         for rule in restored.quality.hardRestrictions
-        if rule not in brief.mandatoryRules
+        if rule not in spec.hardRestrictions
     ]
-    restored.quality.hardRestrictions = [*brief.mandatoryRules, *model_rules]
+    restored._model_added_hard_restrictions = list(model_only_rules)
+    restored.quality.hardRestrictions = list(spec.hardRestrictions)
+    restored.quality.softGuidance = list(
+        dict.fromkeys([*restored.quality.softGuidance, *model_only_rules])
+    )
     if not restored.workflow.objective.strip():
         restored.workflow.objective = brief.desiredOutcome
-    if not restored.agentKnowledge.unknownKnowledge and brief.professionalInformation:
-        restored.agentKnowledge.unknownKnowledge = list(brief.professionalInformation)
+    missing_knowledge = [
+        statement
+        for statement in brief.professionalInformation
+        if statement not in restored.agentKnowledge.unknownKnowledge
+    ]
+    restored.agentKnowledge.unknownKnowledge = [
+        *restored.agentKnowledge.unknownKnowledge,
+        *missing_knowledge,
+    ]
     if not restored.agentKnowledge.pitfalls and brief.pitfalls:
         restored.agentKnowledge.pitfalls = [item.model_copy(deep=True) for item in brief.pitfalls]
     missing_related = [
@@ -227,8 +269,21 @@ def restore_authoritative_facts(ir: SkillIR, brief: SkillBrief) -> SkillIR:
     ]
     if not restored.agentKnowledge.supplementalContext.strip():
         restored.agentKnowledge.supplementalContext = brief.supplementalContext
-    if brief.specialCases and not restored.workflow.decisionPoints:
+    if (
+        brief.specialCases
+        and brief.specialCases not in restored.workflow.decisionPoints
+        and brief.specialCases not in restored.workflow.failureHandling
+    ):
         restored.workflow.decisionPoints.append(brief.specialCases)
+    missing_acceptance = [
+        criterion.statement
+        for criterion in spec.acceptanceCriteria
+        if criterion.statement not in restored.quality.validationChecklist
+    ]
+    restored.quality.validationChecklist = [
+        *restored.quality.validationChecklist,
+        *missing_acceptance,
+    ]
     authored_paths = {item.path for item in restored.contextEngineering.referenceFiles}
     has_fallback_reference = any(
         path not in authored_paths for path in restored.contextEngineering.references

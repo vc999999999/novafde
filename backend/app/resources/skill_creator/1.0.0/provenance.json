@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "sourceUrl": "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
+  "sourceRevision": "57546260929473d4e0d1c1bb75297be2fdfa1949",
+  "sourceContentSha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
+  "importedAt": "2026-06-11",
+  "contentSha256": "1f6974a8f4973eec3732e1b2438de61d11a05dabfa1f023fcfbb749c8d7a2d71",
+  "notes": "Audited NovaFDE runtime snapshot derived from the pinned official Skill Creator. The local content is intentionally scoped to structured SkillIR generation and deterministic rendering."
+}

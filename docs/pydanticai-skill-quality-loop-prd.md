@@ -1813,3 +1813,29 @@ Pydantic Evals 适合作为离线回归框架，而不是替代线上每次生�
   <https://pydantic.dev/docs/ai/advanced-features/retries/>
 - Pydantic Evals:  
   <https://pydantic.dev/docs/ai/evals/evals/>
+
+## 39. SDD 与官方 Skill 规范增强
+
+当前实现已在质量循环之前加入确定性规格层：
+
+```text
+SkillDraft
+→ SkillBrief
+→ SkillSpec revision + SHA256
+→ versioned Skill Creator
+→ SkillIR 1.1 + specTrace
+→ Spec Compliance Validation
+→ deterministic renderer
+→ skills-ref 0.1.1
+→ Judges / Repair / best candidate / package
+```
+
+约束：
+
+- `SkillSpec` 由程序确定性构建，Agent 只读，只有用户补充能创建新修订。
+- `GenerationAttempt` 必须记录 `skillSpecRevision` 和 `skillSpecSha256`。
+- 每个必需 Spec 条目必须映射到有效 IR 路径和真实最终文件。
+- `hardRestrictions` 只能等于用户 `mandatoryRules` 加系统最小执行基线。
+- 模型新增硬限制被移除、降级为软建议，并产生 `RULE-002` 质量警告。
+- Validation 继续占 20%，Spec 一致性作为 blocker，不增加新的加权维度。
+- Manifest 记录 Creator、Prompt、Spec、Validator、Renderer 和规则集版本。

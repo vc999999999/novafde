@@ -1,4 +1,4 @@
-from app.models import ReferenceFile
+from app.models import ReferenceFile, SkillHandoff
 from app.renderer import render_skill_package
 from app.utils import hash_directory
 from tests.test_quality_orchestrator import valid_ir
@@ -88,3 +88,23 @@ def test_skill_md_omits_empty_optional_sections(tmp_path) -> None:
     assert "## Soft Guidance" not in skill_md
     assert "## Positive Examples" not in skill_md
     assert "## Counter Examples" not in skill_md
+
+
+def test_skill_md_renders_explicit_skill_handoffs(tmp_path) -> None:
+    ir = valid_ir()
+    ir.workflow.skillHandoffs = [
+        SkillHandoff(
+            skill="web-research",
+            whenToInvoke="When primary-source evidence is missing",
+            input="Research question and evidence gaps",
+            expectedOutput="Source-linked evidence set",
+            failureHandling="Return the unresolved gaps to the current workflow",
+        )
+    ]
+
+    skill_dir = render_skill_package(ir, tmp_path / "pkg")
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "## Skill Orchestration" in skill_md
+    assert "`web-research`" in skill_md
+    assert "When primary-source evidence is missing" in skill_md

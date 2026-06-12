@@ -29,6 +29,8 @@ from app.models import (
     PurposeInfo,
     QualityEvaluationReport,
     SkillDraft,
+    SkillSpecResponse,
+    SkillSpecRevisionSummary,
     SupplementInfo,
     SupplementRequest,
     UserSupplement,
@@ -203,6 +205,26 @@ class SkillForgeService:
         if generation is None or not generation.bestAttemptId:
             return generation.qualityReport if generation else None
         return self.storage.get_quality_report(generation.bestAttemptId)
+
+    def generation_spec(self, generation_id: str) -> SkillSpecResponse | None:
+        generation = self.storage.get_generation(generation_id)
+        if generation is None or not generation.skillSpecRevisions:
+            return None
+        current = generation.skillSpecRevisions[-1]
+        return SkillSpecResponse(
+            current=current.spec,
+            revision=current.revision,
+            sha256=current.sha256,
+            revisions=[
+                SkillSpecRevisionSummary(
+                    revision=item.revision,
+                    sha256=item.sha256,
+                    createdAt=item.createdAt,
+                    sourceIssueIds=item.sourceIssueIds,
+                )
+                for item in generation.skillSpecRevisions
+            ],
+        )
 
     def quality_payload(self, generation_id: str) -> dict[str, Any] | None:
         report = self.quality_report(generation_id)

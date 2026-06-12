@@ -4,8 +4,21 @@ import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from app.models import DownloadInfo, QualityEvaluationReport, SkillIR, ValidationItem
+from app.creator_skill import load_creator_skill
+from app.models import (
+    DownloadInfo,
+    QualityEvaluationReport,
+    SkillIR,
+    SkillSpec,
+    ValidationItem,
+)
+from app.prompts import GENERATION_PROMPT_VERSION
+from app.renderer import RENDERER_VERSION
 from app.utils import ensure_safe_relative_path, format_size
+from app.validator import (
+    AGENT_SKILLS_VALIDATOR_VERSION,
+    VALIDATION_RULE_SET_VERSION,
+)
 
 
 def write_manifest(
@@ -14,14 +27,28 @@ def write_manifest(
     validation_items: list[ValidationItem],
     quality_report: QualityEvaluationReport | None = None,
     selection_reason: str | None = None,
+    skill_spec: SkillSpec | None = None,
+    skill_spec_sha256: str | None = None,
 ) -> Path:
+    creator = load_creator_skill()
     manifest = {
         "schemaVersion": "1.0",
         "versions": {
             "skillIrSchemaVersion": ir.schemaVersion,
             "packageFormatVersion": "1.0",
-            "rendererVersion": "1.0",
-            "validationRuleSetVersion": "1.0",
+            "creatorSkillVersion": creator.version,
+            "creatorSkillSha256": creator.sha256,
+            "generationPromptVersion": GENERATION_PROMPT_VERSION,
+            "skillSpecSchemaVersion": (
+                skill_spec.schemaVersion if skill_spec is not None else None
+            ),
+            "skillSpecRevision": (
+                skill_spec.revision if skill_spec is not None else None
+            ),
+            "skillSpecSha256": skill_spec_sha256,
+            "agentSkillsValidatorVersion": AGENT_SKILLS_VALIDATOR_VERSION,
+            "rendererVersion": RENDERER_VERSION,
+            "validationRuleSetVersion": VALIDATION_RULE_SET_VERSION,
         },
         "skillName": ir.skill.name,
         "targets": ir.platforms.targets,

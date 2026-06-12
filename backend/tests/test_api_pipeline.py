@@ -123,6 +123,9 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
     assert generation["currentStage"] == "packaging"
     assert generation["progress"] == 100
     assert generation["blockingIssues"] == 0
+    assert generation["skillSpecAvailable"] is True
+    assert generation["skillSpecRevision"] == 1
+    assert len(generation["skillSpecSha256"]) == 64
     assert generation["downloadInfo"]["packageName"] == "product-research-package.zip"
     assert generation["downloadInfo"]["fileCount"] >= 5
 
@@ -168,6 +171,19 @@ def test_generation_pipeline_builds_valid_skill_package(tmp_path: Path) -> None:
         assert "不得把供应商自述直接当作第三方事实" in reference
         assert "web-research" in reference
         assert "报告表达尽量简洁" in reference
+        manifest = json.loads(
+            zip_file.read("package-manifest.json").decode("utf-8")
+        )
+        versions = manifest["versions"]
+        assert versions["creatorSkillVersion"] == "1.1.0"
+        assert len(versions["creatorSkillSha256"]) == 64
+        assert versions["generationPromptVersion"] == "generation-v3.2-sdd"
+        assert versions["skillSpecSchemaVersion"] == "1.0"
+        assert versions["skillSpecRevision"] == 1
+        assert versions["skillSpecSha256"] == generation["skillSpecSha256"]
+        assert versions["agentSkillsValidatorVersion"] == "0.1.1"
+        assert versions["rendererVersion"]
+        assert versions["validationRuleSetVersion"]
 
 
 def test_download_rejects_artifact_changed_after_packaging(tmp_path: Path) -> None:

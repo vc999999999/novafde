@@ -149,6 +149,13 @@ def create_app(
             raise HTTPException(status_code=404, detail="Quality report not found")
         return payload
 
+    @app.get("/api/generations/{generation_id}/spec")
+    def generation_spec(generation_id: str) -> dict[str, Any]:
+        payload = service.generation_spec(generation_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="SkillSpec not found")
+        return payload.model_dump(mode="json")
+
     @app.get("/api/generations/{generation_id}/attempts")
     def generation_attempts(generation_id: str) -> list[dict[str, Any]]:
         attempts = service.attempts(generation_id)

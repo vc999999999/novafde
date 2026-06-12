@@ -79,6 +79,73 @@ export interface SkillDraft {
   updatedAt: number;
 }
 
+export type SpecItemSource = 'user' | 'system' | 'derived';
+
+export interface SkillSpec {
+  schemaVersion: string;
+  revision: number;
+  identity: {
+    skillName: string;
+    displayName: string;
+    targetPlatforms: TargetPlatform[];
+    outputLanguage: 'zh-CN' | 'en';
+  };
+  activationContract: {
+    usage: string;
+    desiredOutcome: string;
+  };
+  workflowStages: Array<{
+    id: string;
+    statement: string;
+    source: SpecItemSource;
+    required: boolean;
+  }>;
+  completionCriteria: string;
+  specialCases: string;
+  incrementalKnowledge: string[];
+  pitfalls: KnowledgePitfall[];
+  hardRestrictions: string[];
+  restrictionItems: Array<{
+    id: string;
+    statement: string;
+    source: SpecItemSource;
+  }>;
+  fileContract: {
+    needsReferences: boolean;
+    needsScripts: boolean;
+    needsAssets: boolean;
+  };
+  relatedSkills: Array<{
+    name: string;
+    source: SpecItemSource;
+  }>;
+  acceptanceCriteria: Array<{
+    id: string;
+    statement: string;
+    source: SpecItemSource;
+    required: boolean;
+  }>;
+  userSupplements?: Array<{
+    id: string;
+    question: string;
+    statement: string;
+    source: SpecItemSource;
+  }>;
+  sourceIssueIds: string[];
+}
+
+export interface SkillSpecResponse {
+  current: SkillSpec;
+  revision: number;
+  sha256: string;
+  revisions: Array<{
+    revision: number;
+    sha256: string;
+    createdAt: number;
+    sourceIssueIds: string[];
+  }>;
+}
+
 export interface GenerationResult {
   id: string;
   runId: string;
@@ -111,6 +178,9 @@ export interface GenerationResult {
   promptBundleVersion: string;
   failureCode: string | null;
   supplementScoreDelta: number | null;
+  skillSpecAvailable: boolean;
+  skillSpecRevision: number | null;
+  skillSpecSha256: string | null;
 }
 
 export interface FileNode {
@@ -338,6 +408,7 @@ export interface QualityIssue {
   userQuestion: string | null;
   inputControl: InputControl | null;
   options: string[];
+  specItemIds: string[];
 }
 
 export interface CriterionScore {

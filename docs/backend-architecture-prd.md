@@ -2,15 +2,17 @@
 
 ## 1. 架构目标
 
-后端把用户明确提供的业务事实保存为 `SkillDraft`，归一化为 `SkillBrief`，再调用项目封装的 Skill Creator Agent 生成标准 `SkillIR`。程序负责校验、渲染、路径安全、平台说明和 zip 打包。
+后端把用户明确提供的业务事实保存为 `SkillDraft`，归一化为 `SkillBrief`，再确定性构建不可变 `SkillSpec`。项目封装的版本化 Skill Creator 只能依据只读 Spec 设计 `SkillIR 1.1`；程序负责规格追踪、官方校验、渲染、路径安全、平台说明和 zip 打包。
 
 核心原则：
 
 - 用户决定业务事实，Agent 决定 Skill 标准。
-- 强制规则优先级最高。
+- 权威硬限制固定为用户 `mandatoryRules` 加系统最小执行基线。
 - 补充说明只作为低优先级上下文。
 - Agent 输出结构化 IR，不直接写 zip。
+- Agent 不得修改 SkillSpec、增加硬限制或决定安全边界。
 - 文件渲染、校验和打包必须确定性执行。
+- 每个必需 Spec 条目必须追踪到 IR 与最终文件。
 - 旧 SQLite 草稿必须兼容迁移。
 
 ```mermaid
@@ -19,13 +21,14 @@ flowchart LR
   API --> DB["SQLite JSON Payload"]
   DB --> Normalizer["Brief Normalizer"]
   Normalizer --> Brief["SkillBrief"]
-  Brief --> Creator["Wrapped Skill Creator Agent"]
-  Creator --> IR["SkillIR"]
-  IR --> Validator["IR Validator"]
+  Brief --> Spec["Deterministic SkillSpec"]
+  Spec --> Creator["Versioned Skill Creator"]
+  Creator --> IR["SkillIR 1.1 + Spec Trace"]
+  IR --> Validator["Spec + IR Validator"]
   Validator --> Repair["Repair Loop"]
   Repair --> IR
   Validator --> Renderer["Deterministic Renderer"]
-  Renderer --> PackageValidator["Package Validator"]
+  Renderer --> PackageValidator["skills-ref 0.1.1"]
   PackageValidator --> Adapter["Platform Adapter"]
   Adapter --> Zip["Zip Packager"]
 ```
@@ -131,19 +134,34 @@ flowchart LR
 
 固定优先级：
 
-1. `mandatoryRules`
-2. 用途、结果、流程、完成标准、专业信息、常见错误和协同 Skill
-3. `supplementalContext`
-4. Agent 的结构和表达决策
+1. 用户 `mandatoryRules`
+2. 系统最小执行基线
+3. 用途、结果、流程、完成标准、专业信息、常见错误和协同 Skill
+4. `supplementalContext`
+5. Agent 的结构和表达决策
 
 约束：
 
-- Skill Creator、解析修复和 Repair Loop 都必须原样保留 `mandatoryRules`。
+- `SkillIR.hardRestrictions` 必须逐字逐序等于当前 `SkillSpec.hardRestrictions`。
+- 模型自行增加的硬限制必须移除并降级到 `softGuidance`。
 - 补充说明可以丰富普通信息，但不能覆盖、弱化或删除强制规则。
 - 常见错误必须来自用户输入，不允许用模型猜测的内容替代。
 - 补充说明为空时不得产生 warning 或 blocking。
 
-## 5. Skill Creator Agent
+## 5. SkillSpec
+
+`SkillSpec` 由程序确定性构建，包含身份、目标平台、触发契约、工作流阶段、完成标准、增量知识、反例、硬限制、文件策略、相关 Skill、用户补充（`userSupplements`）和稳定验收 ID。
+
+- 初始生成创建 revision 1。
+- 用户补充创建 revision 2、3；全部跳过的补充不创建新修订。
+- 每条补充答案作为 `supplement.{issueId}` 进入 `userSupplements`，并成为必需 Spec Trace 条目；跨修订累积。
+- 每个修订保存 SHA256，历史修订不可修改。
+- `GenerationAttempt` 记录 `skillSpecRevision` 和 `skillSpecSha256`。
+- 最终打包按交付候选所属的修订校验并写入 Manifest，后续修订不会追溯否决旧候选。
+- 评测前由 `enforce_spec_contract` 确定性恢复：规范化 `renderedPaths` 的 Skill 目录前缀，并保证补充原文与其 trace 存在。
+- Spec 可预览但不需要用户确认。
+
+## 6. Skill Creator Agent
 
 Skill Creator 负责：
 
@@ -153,15 +171,30 @@ Skill Creator 负责：
 - 根据特殊情况生成恢复策略和分支。
 - 判断信息放入 `SKILL.md`、`references/`、`scripts/` 或 `assets/`。
 - 保留专业信息、强制规则、常见错误和协同 Skill。
-- 输出符合 Pydantic schema 的 `SkillIR` JSON。
+- 为相关 Skill 生成调用时机、输入、输出和失败回退的 `derived` handoff。
+- 输出符合 Pydantic schema 的 `SkillIR 1.1` JSON 和完整 `specTrace`。
+
+仓库内保存审计快照（当前 1.1.0，吸收官方 description 写法与三级渐进加载原则；官方交互式 eval/benchmark 工作流被排除，因为 NovaFDE 有自己的确定性校验和评测闭环）：
+
+```text
+backend/app/resources/skill_creator/1.1.0/
+  SKILL.md
+  provenance.json
+```
+
+description 是触发契约而非介绍词：先用一个短句说明 Skill 做什么，再以
+`Use when users ask to <动作>… or mention <关键词枚举>` 列出具体用户意图和
+用户实际会输入的词（含中文品牌词、领域名词、动作动词及别名），并刻意覆盖
+邻近意图以对抗 under-trigger。Activation Judge 对仅有能力概述、缺少枚举触发
+词的 description 在 trigger-term-quality 和 specificity 上判低分。
 
 模型失败时不得生成静态替代作品。已有安全候选时选择历史最佳候选；没有可评估候选时返回结构化技术失败。
 
-## 6. SkillIR
+## 7. SkillIR
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "skill": {
     "name": "product-research",
     "description": "Use when the user needs this workflow: ...",
@@ -172,7 +205,8 @@ Skill Creator 负责：
     "steps": [],
     "decisionPoints": [],
     "failureHandling": [],
-    "verification": []
+    "verification": [],
+    "skillHandoffs": []
   },
   "contextEngineering": {
     "filesystemAssumptions": [],
@@ -196,13 +230,20 @@ Skill Creator 负责：
   },
   "platforms": {
     "targets": ["claude-code", "codex"]
-  }
+  },
+  "specTrace": [
+    {
+      "specItemId": "workflow.stage.01",
+      "irPaths": ["workflow.steps[0]"],
+      "renderedPaths": ["product-research/SKILL.md"]
+    }
+  ]
 }
 ```
 
-`quality.hardRestrictions` 必须与 Brief 的 `mandatoryRules` 一致。
+`quality.hardRestrictions` 必须与当前 SkillSpec 完全一致。
 
-## 7. 校验规则
+## 8. 校验规则
 
 Brief 阻塞规则：
 
@@ -228,8 +269,10 @@ IR 阻塞规则：
 - frontmatter 无法解析或名称不一致。
 - 引用文件不存在。
 - 文件路径不安全或 zip 存在路径穿越。
+- 缺少 Spec Trace、IR 路径无效、最终文件不存在或规格内容未实现。
+- `skills-ref==0.1.1` 拒绝目录、名称、description 或 frontmatter。
 
-## 8. SQLite 与兼容迁移
+## 9. SQLite 与兼容迁移
 
 SQLite 表：
 
@@ -239,6 +282,8 @@ SQLite 表：
 - `app_settings`
 
 Draft 和 Generation 使用 JSON payload 保存。
+
+SkillSpec 修订继续保存在 Generation JSON payload 中，不新增关系表。旧 Generation 缺少 Spec 时仍可读取，并由前端显示历史兼容提示。
 
 读取旧 Draft 时执行一次确定性迁移：
 
@@ -254,7 +299,7 @@ Draft 和 Generation 使用 JSON payload 保存。
 
 迁移成功后立即以新结构重新保存，后续读取不再重复迁移。
 
-## 9. API
+## 10. API
 
 ```text
 POST   /api/drafts
@@ -263,6 +308,7 @@ GET    /api/drafts/:id
 PATCH  /api/drafts/:id
 POST   /api/drafts/:id/generate
 GET    /api/generations/:id
+GET    /api/generations/:id/spec
 GET    /api/generations/:id/preview
 GET    /api/generations/:id/validation
 GET    /api/generations/:id/download
@@ -279,7 +325,7 @@ PUT    /api/settings
 GET    /api/cli/commands
 ```
 
-## 10. Provider 与安全
+## 11. Provider 与安全
 
 - 支持 `claude` 和 `openai-compatible` 协议。
 - API Key 只写入环境变量或本地秘密配置，响应中不得返回明文。
@@ -289,7 +335,7 @@ GET    /api/cli/commands
 - 路径必须通过安全相对路径校验。
 - zip 不允许绝对路径或 `..`。
 
-## 11. 渲染和打包
+## 12. 渲染和打包
 
 canonical package：
 
@@ -313,8 +359,11 @@ package-manifest.json
 - 专业信息、强制规则、常见错误、协同 Skill 和补充说明可进入 references。
 - 补充说明章节必须标注其优先级低于强制规则。
 - 仅为选中的平台生成安装说明。
+- Codex 使用 `~/.agents/skills/` 与项目 `.agents/skills/`。
+- Hermes 使用 `~/.hermes/skills/`；OpenClaw 单独列出 workspace、`~/.agents/skills/` 和 `~/.openclaw/skills/`。
+- Manifest 记录 Creator、Prompt、Spec、Validator、Renderer 和校验规则集版本。
 
-## 12. 验收标准
+## 13. 验收标准
 
 - 最新 Draft API 只返回四步模型字段。
 - 旧 Draft 可读取、迁移并重新保存。
@@ -322,5 +371,8 @@ package-manifest.json
 - 生成结果完整保留强制规则和用户常见错误。
 - 与强制规则冲突的补充说明不能改变硬性约束。
 - Skill Creator 能从大致流程生成完整步骤。
+- 相同 Draft 生成相同 SkillSpec 与 SHA256，用户补充创建不可变新修订。
+- 每个必需 Spec 条目存在有效 Spec Trace。
+- 每个候选和最终包通过本地官方 Agent Skills 校验。
 - 前后端契约一致。
 - 全部 pytest、Ruff、ESLint 和生产构建通过。
