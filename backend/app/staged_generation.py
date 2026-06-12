@@ -187,7 +187,7 @@ def assemble_skill_ir(
     workflow: WorkflowGenerationResult,
     knowledge: KnowledgeGenerationResult,
     quality: QualityGenerationResult,
-    semantic_trace: SemanticTraceResult,
+    semantic_trace: SemanticTraceResult | None = None,
 ) -> SkillIR:
     agent_knowledge = knowledge.agentKnowledge.model_copy(deep=True)
     for statement in spec.incrementalKnowledge:
@@ -221,12 +221,12 @@ def assemble_skill_ir(
 
     decision_points = list(workflow.decisionPoints)
     failure_handling = list(workflow.failureHandling)
-    if (
-        spec.specialCases.strip()
-        and spec.specialCases not in decision_points
-        and spec.specialCases not in failure_handling
-    ):
-        decision_points.append(spec.specialCases)
+    special_cases = [
+        item.statement for item in spec.specialCaseItems
+    ] or ([spec.specialCases] if spec.specialCases.strip() else [])
+    for statement in special_cases:
+        if statement not in decision_points and statement not in failure_handling:
+            decision_points.append(statement)
 
     ir = SkillIR(
         schemaVersion="1.1",
@@ -255,17 +255,9 @@ def assemble_skill_ir(
             validationChecklist=checklist,
         ),
         platforms=SkillPlatforms(targets=list(spec.identity.targetPlatforms)),
-        specTrace=[
-            SpecTraceItem(
-                specItemId=item.specItemId,
-                irPaths=list(item.irPaths),
-                renderedPaths=[f"{spec.identity.skillName}/SKILL.md"],
-            )
-            for item in semantic_trace.items
-        ],
+        specTrace=[],
     )
     ir = enforce_spec_contract(ir, spec)
-    _add_deterministic_traces(ir, spec)
     return ir
 
 

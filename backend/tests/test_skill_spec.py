@@ -195,9 +195,6 @@ def test_enforce_spec_contract_normalizes_rendered_paths() -> None:
 
     assert enforced.specTrace[0].renderedPaths == [
         "product-research/SKILL.md",
-        "product-research/references/domain-knowledge.md",
-        "product-research/SKILL.md",
-        "product-research/scripts/run.py",
     ]
 
 

@@ -1,15 +1,13 @@
 from app.models import SkillDraft
 from app.normalizer import normalize_draft
-from app.spec_builder import build_skill_spec
+from app.spec_builder import build_skill_spec, required_spec_trace_items
 from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
-    SemanticTraceResult,
     WorkflowGenerationResult,
     assemble_skill_ir,
     validate_knowledge_result,
     validate_quality_result,
-    validate_semantic_trace_result,
     validate_workflow_result,
 )
 from tests.test_api_pipeline import build_draft_payload
@@ -84,44 +82,21 @@ def _quality() -> QualityGenerationResult:
     )
 
 
-def _semantic_trace() -> SemanticTraceResult:
-    return SemanticTraceResult.model_validate(
-        {
-            "items": [
-                {
-                    "specItemId": "activation.usage",
-                    "irPaths": ["skill.description"],
-                },
-                {
-                    "specItemId": "activation.outcome",
-                    "irPaths": ["workflow.objective"],
-                },
-                *[
-                    {
-                        "specItemId": f"workflow.stage.{index:02d}",
-                        "irPaths": [f"workflow.steps[{index - 1}]"],
-                    }
-                    for index in range(1, 4)
-                ],
-            ],
-        }
-    )
-
-
 def test_assemble_skill_ir_restores_authoritative_facts_and_traces() -> None:
     brief, spec = _brief_and_spec()
     workflow = _workflow(brief)
     knowledge = _knowledge()
     quality = _quality()
-    semantic = _semantic_trace()
-
-    ir = assemble_skill_ir(brief, spec, workflow, knowledge, quality, semantic)
+    ir = assemble_skill_ir(brief, spec, workflow, knowledge, quality)
 
     assert ir.skill.name == spec.identity.skillName
     assert ir.skill.language == spec.identity.outputLanguage
     assert ir.platforms.targets == spec.identity.targetPlatforms
     assert ir.quality.hardRestrictions == spec.hardRestrictions
-    assert spec.specialCases in ir.workflow.decisionPoints
+    assert all(
+        item.statement in ir.workflow.decisionPoints
+        for item in spec.specialCaseItems
+    )
     assert spec.acceptanceCriteria[0].statement in ir.quality.validationChecklist
     assert set(spec.incrementalKnowledge).issubset(ir.agentKnowledge.unknownKnowledge)
     assert {item.name for item in spec.relatedSkills}.issubset(
@@ -134,15 +109,18 @@ def test_assemble_skill_ir_restores_authoritative_facts_and_traces() -> None:
         "identity.platforms",
         "activation.usage",
         "activation.outcome",
-        "special-cases.01",
         "acceptance.01",
         "files.references",
+        *(item.id for item in spec.specialCaseItems),
         *(
             f"workflow.stage.{index:02d}"
             for index in range(1, len(spec.workflowStages) + 1)
         ),
     }
     assert required_ids.issubset(traces)
+    assert traces["activation.usage"].irPaths == ["skill.description"]
+    assert traces["activation.outcome"].irPaths == ["workflow.objective"]
+    assert traces["workflow.stage.01"].irPaths == ["workflow.steps[0]"]
     assert traces["special-cases.01"].irPaths[0].startswith(
         "workflow.decisionPoints["
     )
@@ -161,8 +139,6 @@ def test_stage_validators_report_owned_contract_failures() -> None:
     knowledge = _knowledge()
     knowledge.contextEngineering.references = []
     quality = _quality()
-    semantic = SemanticTraceResult(items=[])
-
     assert "工作流步骤数量少于必需规格阶段" in validate_workflow_result(
         workflow, spec
     )
@@ -177,49 +153,10 @@ def test_stage_validators_report_owned_contract_failures() -> None:
         _workflow(brief),
         _knowledge(),
         _quality(),
-        _semantic_trace(),
     )
-    errors = validate_semantic_trace_result(semantic, spec, assembled)
-    assert "缺少语义映射" in errors[0]
-
-
-def test_semantic_trace_rejects_non_semantic_spec_ids_and_reused_steps() -> None:
-    brief, spec = _brief_and_spec()
-    ir = assemble_skill_ir(
-        brief,
-        spec,
-        _workflow(brief),
-        _knowledge(),
-        _quality(),
-        _semantic_trace(),
-    )
-    semantic = SemanticTraceResult.model_validate(
-        {
-            "items": [
-                {
-                    "specItemId": "identity.name",
-                    "irPaths": ["skill.name"],
-                },
-                {
-                    "specItemId": "activation.usage",
-                    "irPaths": ["skill.description"],
-                },
-                {
-                    "specItemId": "activation.outcome",
-                    "irPaths": ["workflow.objective"],
-                },
-                *[
-                    {
-                        "specItemId": stage.id,
-                        "irPaths": ["workflow.steps[0]"],
-                    }
-                    for stage in spec.workflowStages
-                ],
-            ]
-        }
-    )
-
-    errors = validate_semantic_trace_result(semantic, spec, ir)
-
-    assert any("不允许由语义阶段映射 identity.name" in error for error in errors)
-    assert any("复用了 workflow.steps[0]" in error for error in errors)
+    assert {
+        item.specItemId for item in assembled.specTrace
+    } == {
+        item.specItemId
+        for item in required_spec_trace_items(spec)
+    }

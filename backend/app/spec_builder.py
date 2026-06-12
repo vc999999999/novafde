@@ -77,7 +77,17 @@ def required_spec_trace_items(spec: SkillSpec) -> list[RequiredSpecTraceItem]:
         for stage in spec.workflowStages
         if stage.required
     )
-    if spec.specialCases.strip():
+    items.extend(
+        RequiredSpecTraceItem(
+            item.id,
+            "workflow.decisionPoints",
+            item.statement,
+            alternateIrPathPrefixes=("workflow.failureHandling",),
+        )
+        for item in _special_case_items(spec)
+        if item.statement.strip()
+    )
+    if not spec.specialCaseItems and spec.specialCases.strip():
         items.append(
             RequiredSpecTraceItem(
                 "special-cases.01",
@@ -159,6 +169,10 @@ def required_spec_trace_items(spec: SkillSpec) -> list[RequiredSpecTraceItem]:
         if criterion.required
     )
     return items
+
+
+def _special_case_items(spec: SkillSpec) -> list[Any]:
+    return list(spec.specialCaseItems)
 
 
 def build_skill_spec(
@@ -372,27 +386,29 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
     path whenever the contract determines one.
     """
     enforced = ir.model_copy(deep=True)
-    skill_name = enforced.skill.name
+    original_skill_name = enforced.skill.name
     context = enforced.contextEngineering
     for reference_file in context.referenceFiles:
         normalized = _normalize_package_relative_path(
-            reference_file.path, skill_name
+            reference_file.path, original_skill_name
         )
         if normalized:
             reference_file.path = normalized
     for field in ("references", "scripts", "assets"):
         normalized_paths = []
         for path in getattr(context, field):
-            normalized = _normalize_package_relative_path(path, skill_name)
+            normalized = _normalize_package_relative_path(
+                path, original_skill_name
+            )
             if normalized and normalized not in normalized_paths:
                 normalized_paths.append(normalized)
         setattr(context, field, normalized_paths)
 
-    for trace in enforced.specTrace:
-        trace.renderedPaths = [
-            _normalize_rendered_path(path, skill_name)
-            for path in trace.renderedPaths
-        ]
+    enforced.skill.name = spec.identity.skillName
+    enforced.skill.language = spec.identity.outputLanguage
+    enforced.platforms.targets = list(spec.identity.targetPlatforms)
+    enforced.quality.hardRestrictions = list(spec.hardRestrictions)
+    skill_name = enforced.skill.name
 
     knowledge = enforced.agentKnowledge.unknownKnowledge
     for statement in (
@@ -401,12 +417,24 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
     ):
         if statement not in knowledge:
             knowledge.append(statement)
-    if (
-        spec.specialCases.strip()
-        and spec.specialCases not in enforced.workflow.decisionPoints
-        and spec.specialCases not in enforced.workflow.failureHandling
-    ):
-        enforced.workflow.decisionPoints.append(spec.specialCases)
+    special_cases = [
+        item.statement for item in _special_case_items(spec)
+    ] or ([spec.specialCases] if spec.specialCases.strip() else [])
+    for statement in special_cases:
+        if (
+            statement not in enforced.workflow.decisionPoints
+            and statement not in enforced.workflow.failureHandling
+        ):
+            enforced.workflow.decisionPoints.append(statement)
+    for pitfall in spec.pitfalls:
+        if not any(
+            candidate.id == pitfall.id if pitfall.id else candidate == pitfall
+            for candidate in enforced.agentKnowledge.pitfalls
+        ):
+            enforced.agentKnowledge.pitfalls.append(pitfall.model_copy(deep=True))
+    for related in spec.relatedSkills:
+        if related.name not in enforced.agentKnowledge.relatedSkills:
+            enforced.agentKnowledge.relatedSkills.append(related.name)
     for criterion in spec.acceptanceCriteria:
         if (
             criterion.required
@@ -414,63 +442,168 @@ def enforce_spec_contract(ir: SkillIR, spec: SkillSpec) -> SkillIR:
         ):
             enforced.quality.validationChecklist.append(criterion.statement)
 
-    traced_ids = {trace.specItemId for trace in enforced.specTrace}
-    for supplement in spec.userSupplements:
-        if supplement.id in traced_ids:
-            continue
-        index = knowledge.index(supplement.statement)
-        enforced.specTrace.append(
-            SpecTraceItem(
-                specItemId=supplement.id,
-                irPaths=[f"agentKnowledge.unknownKnowledge[{index}]"],
-                renderedPaths=[f"{skill_name}/SKILL.md"],
-            )
-        )
+    enforced.specTrace = build_spec_trace(enforced, spec)
+    return enforced
 
-    requirements = {
-        item.specItemId: item for item in required_spec_trace_items(spec)
-    }
-    for trace in enforced.specTrace:
-        requirement = requirements.get(trace.specItemId)
-        if requirement is None:
-            continue
-        allowed = (requirement.irPathPrefix, *requirement.alternateIrPathPrefixes)
-        kept = [
-            path
-            for path in trace.irPaths
-            if any(_matches_ir_prefix(path, prefix) for prefix in allowed)
-        ]
-        canonical = _canonical_ir_path(enforced, requirement)
-        if canonical is not None:
-            kept = [canonical]
-        if kept:
-            trace.irPaths = kept
-        if not trace.renderedPaths:
-            trace.renderedPaths = [f"{skill_name}/SKILL.md"]
 
-    traced_ids = {trace.specItemId for trace in enforced.specTrace}
-    deterministic_trace_ids = {
-        "special-cases.01",
-        *(
-            criterion.id
-            for criterion in spec.acceptanceCriteria
-            if criterion.required
-        ),
-    }
-    for spec_item_id, requirement in requirements.items():
-        if (
-            spec_item_id in traced_ids
-            or spec_item_id not in deterministic_trace_ids
-        ):
-            continue
-        canonical = _canonical_ir_path(enforced, requirement)
-        if canonical is None:
-            continue
-        enforced.specTrace.append(
+def build_spec_trace(ir: SkillIR, spec: SkillSpec) -> list[SpecTraceItem]:
+    skill_md = f"{ir.skill.name}/SKILL.md"
+    knowledge_paths = _knowledge_rendered_paths(ir)
+    traces: list[SpecTraceItem] = []
+
+    def add(spec_item_id: str, ir_path: str, rendered_paths: list[str]) -> None:
+        traces.append(
             SpecTraceItem(
                 specItemId=spec_item_id,
-                irPaths=[canonical],
-                renderedPaths=[f"{skill_name}/SKILL.md"],
+                irPaths=[ir_path],
+                renderedPaths=rendered_paths,
             )
         )
-    return enforced
+
+    add("identity.name", "skill.name", [skill_md])
+    add("identity.platforms", "platforms.targets", [skill_md])
+    add("activation.usage", "skill.description", [skill_md])
+    add("activation.outcome", "workflow.objective", [skill_md])
+
+    for index, stage in enumerate(spec.workflowStages):
+        if stage.required and index < len(ir.workflow.steps):
+            add(stage.id, f"workflow.steps[{index}]", [skill_md])
+
+    for item in _special_case_items(spec):
+        path = _list_value_path(
+            ir.workflow.decisionPoints,
+            ir.workflow.failureHandling,
+            item.statement,
+        )
+        if path:
+            add(item.id, path, [skill_md])
+    if not spec.specialCaseItems and spec.specialCases.strip():
+        path = _list_value_path(
+            ir.workflow.decisionPoints,
+            ir.workflow.failureHandling,
+            spec.specialCases,
+        )
+        if path:
+            add("special-cases.01", path, [skill_md])
+
+    for index, statement in enumerate(spec.incrementalKnowledge, start=1):
+        if statement in ir.agentKnowledge.unknownKnowledge:
+            item_index = ir.agentKnowledge.unknownKnowledge.index(statement)
+            add(
+                f"knowledge.incremental.{index:02d}",
+                f"agentKnowledge.unknownKnowledge[{item_index}]",
+                knowledge_paths,
+            )
+    for supplement in spec.userSupplements:
+        if supplement.statement in ir.agentKnowledge.unknownKnowledge:
+            item_index = ir.agentKnowledge.unknownKnowledge.index(
+                supplement.statement
+            )
+            add(
+                supplement.id,
+                f"agentKnowledge.unknownKnowledge[{item_index}]",
+                knowledge_paths,
+            )
+    for index, pitfall in enumerate(spec.pitfalls, start=1):
+        item_index = next(
+            (
+                candidate_index
+                for candidate_index, candidate in enumerate(
+                    ir.agentKnowledge.pitfalls
+                )
+                if (
+                    candidate.id == pitfall.id
+                    if pitfall.id
+                    else candidate == pitfall
+                )
+            ),
+            None,
+        )
+        if item_index is not None:
+            add(
+                f"pitfall.{pitfall.id}" if pitfall.id else f"pitfall.{index:02d}",
+                f"agentKnowledge.pitfalls[{item_index}]",
+                knowledge_paths,
+            )
+    for index, restriction in enumerate(spec.restrictionItems):
+        if index < len(ir.quality.hardRestrictions):
+            add(
+                restriction.id,
+                f"quality.hardRestrictions[{index}]",
+                [skill_md],
+            )
+    for index, related in enumerate(spec.relatedSkills, start=1):
+        if related.name in ir.agentKnowledge.relatedSkills:
+            item_index = ir.agentKnowledge.relatedSkills.index(related.name)
+            add(
+                f"related-skill.{index:02d}",
+                f"agentKnowledge.relatedSkills[{item_index}]",
+                knowledge_paths,
+            )
+    for criterion in spec.acceptanceCriteria:
+        if (
+            criterion.required
+            and criterion.statement in ir.quality.validationChecklist
+        ):
+            item_index = ir.quality.validationChecklist.index(
+                criterion.statement
+            )
+            add(
+                criterion.id,
+                f"quality.validationChecklist[{item_index}]",
+                [skill_md],
+            )
+
+    context = ir.contextEngineering
+    if spec.fileContract.needsReferences:
+        if context.referenceFiles:
+            path = context.referenceFiles[0].path
+            add(
+                "files.references",
+                "contextEngineering.referenceFiles[0]",
+                [f"{ir.skill.name}/{path}"],
+            )
+        elif context.references:
+            path = context.references[0]
+            add(
+                "files.references",
+                "contextEngineering.references[0]",
+                [f"{ir.skill.name}/{path}"],
+            )
+    if spec.fileContract.needsScripts and context.scripts:
+        add(
+            "files.scripts",
+            "contextEngineering.scripts[0]",
+            [f"{ir.skill.name}/{context.scripts[0]}"],
+        )
+    if spec.fileContract.needsAssets and context.assets:
+        add(
+            "files.assets",
+            "contextEngineering.assets[0]",
+            [f"{ir.skill.name}/{context.assets[0]}"],
+        )
+    return traces
+
+
+def _list_value_path(
+    primary: list[str],
+    alternate: list[str],
+    statement: str,
+) -> str | None:
+    if statement in primary:
+        return f"workflow.decisionPoints[{primary.index(statement)}]"
+    if statement in alternate:
+        return f"workflow.failureHandling[{alternate.index(statement)}]"
+    return None
+
+
+def _knowledge_rendered_paths(ir: SkillIR) -> list[str]:
+    if ir.contextEngineering.referenceFiles:
+        return [
+            f"{ir.skill.name}/{ir.contextEngineering.referenceFiles[0].path}"
+        ]
+    if ir.contextEngineering.references:
+        return [
+            f"{ir.skill.name}/{ir.contextEngineering.references[0]}"
+        ]
+    return [f"{ir.skill.name}/SKILL.md"]
