@@ -1,191 +1,85 @@
 # NovaFDE
 
-**AI Skill 可视化构建工具 — 通过四步表单向导快速创建、校验和打包 AI Agent Skill**
+A local-first Skill factory for agents.
 
-*Build, validate, and package AI Agent Skills through an intuitive 4-step visual wizard with PydanticAI quality loop.*
+[![License](https://img.shields.io/badge/license-MIT-0e7c73.svg)](https://opensource.org/license/mit/)
+[![React](https://img.shields.io/badge/React-19-18181b.svg)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-local-18181b.svg)](https://fastapi.tiangolo.com/)
+[![PydanticAI](https://img.shields.io/badge/PydanticAI-quality_loop-18181b.svg)](https://ai.pydantic.dev/)
 
-[![GitHub Stars](https://img.shields.io/github/stars/vc999999999/novafde?style=for-the-badge&logo=github&logoColor=white)](https://github.com/vc999999999/novafde)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](https://opensource.org/license/mit/)
-[![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![Tailwind](https://img.shields.io/badge/Tailwind_CSS_4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-000000?style=for-the-badge&logo=shadcnui&logoColor=white)](https://ui.shadcn.com/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PydanticAI](https://img.shields.io/badge/PydanticAI-000000?style=for-the-badge&logo=python&logoColor=white)](https://ai.pydantic.dev/)
-[![Quick Start](https://img.shields.io/badge/Quick_Start-Ready_To_Go-yellow?style=for-the-badge&logo=rocket)](#-quick-start--快速开始)
+NovaFDE turns a rough workflow description into an installable Agent Skill package. You describe what the skill is for, when it should trigger, what domain knowledge matters, and what must never be violated. NovaFDE builds a versioned SkillSpec, generates a structured SkillIR, renders `SKILL.md` plus resources, validates the package, scores it, repairs it when needed, and gives you a zip you can install into Claude Code, Codex, or Hermes/OpenClaw.
 
----
+Everything runs on your machine. Drafts, history, artifacts, provider config, logs, and generated packages stay local.
 
-## 中文
+## Why
 
-### 这是什么？
+Writing a good Agent Skill is less about producing Markdown and more about preserving constraints.
 
-NovaFDE 是一个**纯本地运行的 AI Skill 生成平台**，帮助开发者通过四步 Web 表单向导快速创建符合规范的 `SKILL.md` 文件。
+A useful skill needs a trigger description that actually activates, a workflow an agent can execute, domain knowledge that is loaded only when needed, and validation strong enough to catch vague or fragile output. In practice, hand-written skills often drift: the description becomes a summary, business rules get softened, references become clutter, and a regeneration fixes one issue while breaking another.
 
-后端先把 `SkillBrief` 确定性构建为不可变、带 SHA256 修订记录的 `SkillSpec`，再使用版本化的官方 Skill Creator 方法论生成 `SkillIR 1.1`。最终由确定性 renderer 输出 `SKILL.md` 与三端安装说明，并通过固定版本 `skills-ref==0.1.1` 校验。
+NovaFDE makes skill creation repeatable:
 
-### 核心功能
+- users provide business facts, not file-structure decisions;
+- the backend turns those facts into an immutable `SkillSpec` with SHA256 history;
+- generation is split into workflow, knowledge, and quality stages;
+- every candidate is rendered deterministically before evaluation;
+- validation, activation, and implementation scores drive up to three repair rounds;
+- the highest-scoring safe candidate is selected instead of blindly trusting the last model response.
 
-| 功能 | 说明 |
-|------|------|
-| **四步可视化向导** | 基本信息 → 用途描述 → 知识库 → 补充信息 |
-| **PydanticAI 质量循环** | 初始候选后最多三轮定向修复，始终选择历史最高分安全候选 |
-| **SDD 规格驱动生成** | 每次生成绑定只读 SkillSpec 修订、SHA256 和逐项 Spec Trace |
-| **官方 Skill Creator** | 使用仓库内版本化、可审计的官方方法论快照设计 SkillIR |
-| **官方规范校验** | 每个候选和最终包都由本地 `skills-ref` 校验，不依赖运行时网络 |
-| **三类质量评测** | Validation、Activation、Implementation 评分 |
-| **智能补充** | 缺少不可推断的业务事实时暂停并请求用户补充 |
-| **三端适配** | Claude Code / Codex / Hermes-OpenClaw |
-| **实时评分** | 侧边栏显示每个步骤和总体完成百分比 |
-| **校验报告** | 自动生成质量校验，标记阻塞项和警告 |
-| **历史记录** | 查看、重新生成、下载过往 Skill 包 |
-| **纯本地运行** | 所有数据保存在本地 SQLite，无远程服务 |
-| **密钥安全** | 系统钥匙串优先，本地加密密钥库兜底 |
+## See It
 
-### 技术栈
+NovaFDE has five working surfaces:
 
-| 层 | 技术 |
-|----|------|
-| 前端框架 | React 19 + TypeScript 6 |
-| 构建工具 | Vite 8 |
-| 样式方案 | Tailwind CSS 4 + shadcn/ui |
-| 图标库 | Lucide React |
-| 后端框架 | FastAPI + PydanticAI |
-| 数据存储 | 本地 SQLite |
-| 产物管理 | 本地文件系统与 zip |
+| Surface | What it is for |
+|---|---|
+| Create | Four-step wizard for building a skill from business intent |
+| History | Reopen, inspect, regenerate, and download previous packages |
+| Rules | Review the local quality rules used during generation |
+| Settings | Configure and test Claude or OpenAI-compatible providers |
+| Local Run | Copyable install, setup, run, doctor, and cleanup commands |
 
-### 项目结构
+The normal path is intentionally short:
 
-```
-novafde/
-├── backend/                  # FastAPI 后端
-│   ├── app/
-│   │   ├── main.py           # API 路由和应用入口
-│   │   ├── models.py         # 数据模型（Pydantic）
-│   │   ├── service.py        # 业务逻辑
-│   │   ├── orchestrator.py   # PydanticAI 质量循环编排器
-│   │   ├── spec_builder.py   # 确定性 SkillSpec 与稳定追踪 ID
-│   │   ├── creator_skill.py  # 版本化 Skill Creator 快照加载
-│   │   ├── validator.py      # Spec Trace 与官方 Agent Skills 校验
-│   │   ├── quality.py        # 质量评分引擎
-│   │   └── settings.py       # 配置加载
-│   ├── tests/                # 后端测试（包含质量循环测试）
-│   └── requirements.txt
-├── skill-forge/              # React 前端
-│   ├── src/
-│   │   ├── components/       # UI 组件（shadcn/ui + 自定义）
-│   │   │   ├── ui/           # shadcn/ui 组件（Button, Card, Input...）
-│   │   │   └── steps/        # 4 步创建向导组件
-│   │   ├── pages/            # 页面（Create, History, Rules, Settings, LocalRun）
-│   │   ├── hooks/            # 自定义 Hooks
-│   │   ├── api.ts            # API 客户端
-│   │   ├── types/            # TypeScript 类型定义
-│   │   ├── data/             # 常量和配置数据
-│   │   └── index.css         # Tailwind 主题和基础样式
-│   ├── package.json
-│   └── vite.config.ts
-├── config/                   # 运行时配置
-│   └── providers.local.json  # Provider 配置（不含明文密钥）
-├── logs/                     # 运行日志
-├── scripts/                  # 运维脚本
-│   ├── install.sh            # 一键安装
-│   ├── run.sh                # 启动前后端
-│   ├── doctor.sh             # 环境检查
-│   └── setup-llm.sh          # 配置 LLM Provider
-└── README.md
+```text
+Basic info -> Purpose and workflow -> Knowledge and rules -> Supplement -> Generate
 ```
 
----
+If the model or validator finds that a user-specific business fact is missing, generation pauses and asks for a targeted supplement. Otherwise there is no chat loop.
 
-## English
+## How It Works
 
-### What is NovaFDE?
+A successful generation is usually one user input pass plus five AI calls:
 
-NovaFDE is a **pure local AI Skill generation platform** that helps developers quickly create `SKILL.md` files through a 4-step web form wizard.
-
-The backend deterministically builds an immutable, SHA256-versioned `SkillSpec` before using a versioned official Skill Creator methodology to generate `SkillIR 1.1`. A deterministic renderer writes the package, and pinned `skills-ref==0.1.1` validates every candidate and final artifact.
-
-### Core Features
-
-| Feature | Description |
-|---------|-------------|
-| **4-Step Visual Wizard** | Basic Info → Purpose → Knowledge Base → Supplement |
-| **PydanticAI Quality Loop** | Up to 3 rounds of targeted fixes after initial candidates, always selects highest-scoring safe candidate |
-| **Specification-Driven Generation** | Every attempt is bound to an immutable SkillSpec revision, SHA256, and item-level Spec Trace |
-| **Versioned Skill Creator** | Uses an audited local snapshot of the official methodology |
-| **Official Validation** | Validates every candidate and final package locally with pinned `skills-ref` |
-| **Three Quality Evaluations** | Validation, Activation, and Implementation scoring |
-| **Smart Supplements** | Pauses and requests user input when business facts cannot be inferred |
-| **Multi-Platform Support** | Claude Code / Codex / Hermes-OpenClaw |
-| **Real-time Scoring** | Sidebar displays completion percentage for each step |
-| **Validation Reports** | Auto-generates quality checks with blocking items and warnings |
-| **History** | View, regenerate, download past Skill packages |
-| **Pure Local** | All data saved in local SQLite, no remote services |
-| **Secure Keys** | System keychain preferred, local encrypted keystore fallback |
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Frontend Framework | React 19 + TypeScript 6 |
-| Build Tool | Vite 8 |
-| Styling | Tailwind CSS 4 + shadcn/ui |
-| Icons | Lucide React |
-| Backend Framework | FastAPI + PydanticAI |
-| Data Storage | Local SQLite |
-| Artifacts | Local filesystem and zip |
-
-### Project Structure
-
-```
-novafde/
-├── backend/                  # FastAPI backend
-│   ├── app/
-│   │   ├── main.py           # API routes and app entry
-│   │   ├── models.py         # Data models (Pydantic)
-│   │   ├── service.py        # Business logic
-│   │   ├── orchestrator.py   # PydanticAI quality loop orchestrator
-│   │   ├── spec_builder.py   # Deterministic SkillSpec and stable trace IDs
-│   │   ├── creator_skill.py  # Versioned Skill Creator snapshot loader
-│   │   ├── validator.py      # Spec Trace and official Agent Skills validation
-│   │   ├── quality.py        # Quality scoring engine
-│   │   └── settings.py       # Configuration loading
-│   ├── tests/                # Backend tests (including quality loop tests)
-│   └── requirements.txt
-├── skill-forge/              # React frontend
-│   ├── src/
-│   │   ├── components/       # UI components (shadcn/ui + custom)
-│   │   │   ├── ui/           # shadcn/ui components (Button, Card, Input...)
-│   │   │   └── steps/        # 4-step creation wizard components
-│   │   ├── pages/            # Pages (Create, History, Rules, Settings, LocalRun)
-│   │   ├── hooks/            # Custom Hooks
-│   │   ├── api.ts            # API client
-│   │   ├── types/            # TypeScript type definitions
-│   │   ├── data/             # Constants and configuration data
-│   │   └── index.css         # Tailwind theme and base styles
-│   ├── package.json
-│   └── vite.config.ts
-├── config/                   # Runtime configuration
-│   └── providers.local.json  # Provider config (no plaintext keys)
-├── logs/                     # Runtime logs
-├── scripts/                  # Operations scripts
-│   ├── install.sh            # One-click install
-│   ├── run.sh                # Start frontend and backend
-│   ├── doctor.sh             # Environment check
-│   └── setup-llm.sh          # Configure LLM Provider
-└── README.md
+```text
+User draft
+  -> normalize draft
+  -> build SkillSpec
+  -> AI: workflow stage
+  -> AI: knowledge/files stage
+  -> AI: quality controls stage
+  -> render package
+  -> deterministic validation
+  -> AI: activation judge
+  -> AI: implementation judge
+  -> aggregate score
+  -> package zip
 ```
 
----
+If quality gates fail, NovaFDE can run up to three repair rounds. Each round uses a focused repair call, then re-renders and re-evaluates the candidate. The default maximum is therefore roughly:
 
-## 🚀 Quick Start / 快速开始
+```text
+initial 5 AI calls + 3 repair rounds * 3 AI calls = 14 AI calls
+```
 
-### 环境要求 / Prerequisites
+Deterministic steps such as normalization, spec building, rendering, path safety, zip creation, and `skills-ref` validation do not call a model.
 
-- **Python** 3.10+
-- **Node.js** 18+（推荐 20+）
-- **npm** 9+
+## Install
 
-### 一键安装 / One-Click Install
+Requirements:
+
+- Python 3.10+
+- Node.js 18+ recommended
+- npm 9+
 
 ```bash
 git clone https://github.com/vc999999999/novafde.git
@@ -193,128 +87,119 @@ cd novafde
 sh scripts/install.sh
 ```
 
-安装脚本会自动：/ The install script automatically:
-- 创建 Python 虚拟环境 / Creates Python virtual environment
-- 安装后端（FastAPI）和前端（React + shadcn/ui）依赖 / Installs backend and frontend dependencies
-- 初始化本地目录和 `.env` 模板 / Initializes local directories and `.env` template
+The installer creates `.venv`, installs backend dependencies from `backend/requirements.txt`, installs frontend dependencies in `skill-forge/`, and initializes local data directories.
 
-### 配置 LLM Provider / Configure LLM Provider
+## Configure a Model
+
+Create a local provider config:
 
 ```bash
 sh scripts/setup-llm.sh
 ```
 
-支持的 Provider：/ Supported providers:
+By default this writes `config/providers.local.json` for Anthropic-compatible Claude settings. You can also configure an OpenAI-compatible provider non-interactively:
 
-| 协议 / Protocol | Provider | 默认模型 / Default Model |
-|-----------------|----------|--------------------------|
-| Claude | Anthropic | claude-sonnet-4-20250514 |
-| OpenAI Compatible | OpenAI / Ollama / vLLM / 其他 | llama3 |
-
-随后在 Web 设置页输入 API Key 并执行连接测试。Key 不写入 SQLite 或 `.env`。
-
-Then enter API Key in web settings page and run connection test. Keys are not stored in SQLite or `.env`.
-
-### 启动项目 / Start Project
-
-```bash
-sh scripts/run.sh
-```
-
-- 前端 / Frontend：http://localhost:5173
-- 后端 / Backend：http://localhost:8000
-- API 文档 / API Docs：http://localhost:8000/docs
-
----
-
-## 🤖 AI Agent 一键安装指南 / AI Agent Quick Setup
-
-如果你是 AI Agent（如 Claude、GPT、Cursor 等），请按以下步骤自动完成项目初始化：
-
-If you are an AI Agent (Claude, GPT, Cursor, etc.), follow these steps to automatically initialize the project:
-
-```bash
-# 1. 进入项目目录 / Enter project directory
-cd novafde
-
-# 2. 环境检查（确认 Python 和 Node 可用）/ Environment check
-sh scripts/doctor.sh
-
-# 3. 一键安装依赖 / One-click install dependencies
-sh scripts/install.sh
-
-# 4. 配置 LLM Provider（交互式）/ Configure LLM Provider (interactive)
-sh scripts/setup-llm.sh
-
-# 5. 启动前后端 / Start frontend and backend
-sh scripts/run.sh
-```
-
-**配置文件位置 / Config file locations：**
-- `.env` — API Key 环境变量 / API Key environment variables
-- `config/providers.local.json` — Provider 配置（协议、Base URL、模型）/ Provider config
-
-**非交互式配置（环境变量）/ Non-interactive configuration (environment variables)：**
 ```bash
 export SKILLFORGE_PROVIDER_PROTOCOL=openai-compatible
-export SKILLFORGE_PROVIDER_NAME="My Provider"
+export SKILLFORGE_PROVIDER_NAME="local-ollama"
 export SKILLFORGE_PROVIDER_BASE_URL="http://localhost:11434"
 export SKILLFORGE_PROVIDER_MODEL="llama3"
 export SKILLFORGE_PROVIDER_KEY_ENV="OPENAI_API_KEY"
 sh scripts/setup-llm.sh
 ```
 
----
+API keys are not stored in plain SQLite records. Use the Settings page to add and test the key through the local keychain/encrypted secret flow, or provide the configured environment variable yourself.
 
-## ⚙️ 常用命令 / Common Commands
+## Run
 
-| 命令 / Command | 说明 / Description |
-|----------------|-------------------|
-| `sh scripts/install.sh` | 安装所有依赖 / Install all dependencies |
-| `sh scripts/run.sh` | 启动前后端 / Start frontend and backend |
-| `sh scripts/doctor.sh` | 检查环境是否就绪 / Check environment readiness |
-| `sh scripts/setup-llm.sh` | 配置 LLM Provider / Configure LLM Provider |
-| `sh scripts/clean-artifacts.sh --yes` | 清理生成产物和日志 / Clean artifacts and logs |
+```bash
+sh scripts/run.sh
+```
 
-### 前端开发 / Frontend Development
+Then open:
+
+- Frontend: <http://127.0.0.1:5173>
+- Backend: <http://127.0.0.1:8000>
+- API docs: <http://127.0.0.1:8000/docs>
+
+Logs are written to `logs/backend.log` and `logs/frontend.log`.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `sh scripts/install.sh` | Install Python and frontend dependencies |
+| `sh scripts/setup-llm.sh` | Write local model provider config |
+| `sh scripts/run.sh` | Start FastAPI and Vite together |
+| `sh scripts/doctor.sh` | Check imports, directories, frontend metadata, and provider config |
+| `sh scripts/clean-artifacts.sh --yes` | Remove generated artifacts and logs |
+
+Frontend development:
 
 ```bash
 cd skill-forge
-npm run dev          # 启动开发服务器 / Start dev server
-npm run build        # 构建生产包 / Build production
-npm run lint         # 代码检查 / Lint code
-npm test             # 运行测试 / Run tests
-npm run preview      # 预览生产包 / Preview production
+npm run dev
+npm run test
+npm run build
+npm run preview
 ```
 
-### 后端验证 / Backend Verification
+Backend verification:
 
 ```bash
-.venv/bin/python -m pytest backend/tests -q
+.venv/bin/python -m pytest backend/tests
 ```
 
-真实模型质量评测应独立运行，不进入普通单元测试。/ Real model quality evaluations should run separately, not in regular unit tests.
+## Architecture
 
----
-
-## 🔧 环境变量 / Environment Variables
-
-`.env` 文件示例 / `.env` file example：
-
-```env
-# Claude
-ANTHROPIC_API_KEY=sk-ant-...
-
-# OpenAI 兼容 / OpenAI compatible
-OPENAI_API_KEY=sk-...
-
-# 自定义（可选）/ Custom (optional)
-BACKEND_PORT=8000
-FRONTEND_PORT=5173
+```text
+novafde/
+├── backend/
+│   ├── app/
+│   │   ├── main.py             # FastAPI routes
+│   │   ├── service.py          # app-level orchestration
+│   │   ├── orchestrator.py     # staged generation and quality loop
+│   │   ├── spec_builder.py     # immutable SkillSpec and trace IDs
+│   │   ├── renderer.py         # deterministic SKILL.md/package rendering
+│   │   ├── validator.py        # validation, spec compliance, skills-ref checks
+│   │   ├── quality.py          # score aggregation and candidate selection
+│   │   └── resources/          # audited Skill Creator methodology snapshots
+│   └── tests/
+├── skill-forge/
+│   ├── src/components/         # wizard, reports, controls, page chrome
+│   ├── src/pages/              # Create, History, Rules, Settings, Local Run
+│   └── src/index.css           # light minimal teal theme
+├── scripts/                    # install, run, doctor, setup, cleanup
+├── config/                     # local provider config
+└── logs/                       # runtime logs
 ```
 
----
+The backend never asks the model to write arbitrary files or zip archives directly. Models return typed structures; NovaFDE renders, validates, and packages them through local code.
 
-## 📄 License
+## Quality Model
+
+NovaFDE evaluates each candidate across three dimensions:
+
+| Dimension | What it checks |
+|---|---|
+| Validation | structure, paths, frontmatter, package shape, SkillSpec trace, official `skills-ref` compatibility |
+| Activation | whether `description` will trigger in the right situations and avoid neighboring intents |
+| Implementation | whether the rendered skill is concise, actionable, clear, and uses progressive disclosure well |
+
+Default strict gates require no blockers, high validation score, sufficient activation/implementation scores, preserved hard rules, safe paths, and traceable required spec items. If strict delivery fails but a safe candidate exists, NovaFDE can return a clearly marked degraded package with the full quality report.
+
+## Design
+
+The app is deliberately calm: light canvas, neutral surfaces, teal as the only strong accent, compact cards, predictable navigation, and dense but readable operational screens. It is a tool for repeated work, not a landing page.
+
+The README style is inspired by the concise product storytelling and direct Usage/Design sections in [tw93/Kami](https://github.com/tw93/Kami), while keeping NovaFDE's local architecture and validation details explicit.
+
+## Current Boundaries
+
+NovaFDE is local-first and single-user. It does not include team workspaces, hosted sync, billing, marketplace publishing, or automatic installation into every agent runtime. Generated skills are packaged for export; you choose where to install them.
+
+Model quality depends on the provider you configure. The deterministic validator catches structure and safety issues, while activation and implementation judges provide quality scoring rather than absolute proof that every future agent run will behave perfectly.
+
+## License
 
 MIT
