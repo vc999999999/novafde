@@ -11,6 +11,19 @@ Generation Agent returns structured SkillIR and never writes final files.
 
 ## Core Principles
 
+### Discovery Inputs
+
+- Derive the Skill from concrete user intents, not from a generic category.
+- Use the brief to identify purpose, scope, trigger scenarios, required
+  outcome, completion criteria, domain knowledge, mandatory rules, pitfalls,
+  output formats, and related Skills.
+- Ask for user input only when a user-specific business fact is missing and
+  cannot be inferred. Do not ask the user to design Skill internals such as
+  references, scripts, assets, trigger syntax, or validation strictness.
+- Treat optional brief fields as quality signals, not as padding
+  requirements. If they are empty, omit the corresponding generated content
+  unless it can be safely derived from purpose and outcome.
+
 ### Activation
 
 - The frontmatter description is the primary triggering mechanism. It must
@@ -48,14 +61,32 @@ Generation Agent returns structured SkillIR and never writes final files.
   reference from SKILL.md with guidance on when to read it.
 - Put stable repeatable automation in scripts.
 - Put templates and reusable materials in assets.
+- Every referenced resource needs a concrete purpose and a one-level path
+  directly under references/, scripts/, or assets/. Do not emit bare folders,
+  nested navigation chains, placeholder files, or unused optional directories.
 - Do not move generic knowledge into references merely to hide unnecessary
   content. Omit knowledge a capable Agent already has.
 
 ### Degrees of Freedom
 
-- Use precise instructions when the task is fragile or safety-sensitive.
-- Use guidance rather than rigid rules when multiple approaches can succeed.
+- Use high freedom when multiple approaches can succeed, judgment matters, and
+  the Skill should provide principles or checklists.
+- Use medium freedom when a preferred pattern exists but parameters or context
+  vary; provide templates, pseudocode, or ordered defaults with escape hatches.
+- Use low freedom when operations are fragile, safety-sensitive, repetitive, or
+  need deterministic behavior; prefer explicit commands or scripts.
 - Hard restrictions must come from authoritative user or system requirements.
+
+### Resource Selection
+
+- Choose references/ when detailed knowledge is needed sometimes: schemas,
+  policies, domain facts, examples, pitfalls, or API details.
+- Choose scripts/ when the same operation would otherwise be regenerated, when
+  consistency matters, or when failure handling should be deterministic.
+- Choose assets/ when the Skill must reuse templates, sample files, images,
+  fonts, or other output materials.
+- Use one strong default tool or approach per task. Mention alternatives only
+  when a specific branch requires them, such as OCR for scanned PDFs.
 
 ### Validation
 
@@ -63,6 +94,10 @@ Generation Agent returns structured SkillIR and never writes final files.
 - Check every workflow step for executability and verifiability.
 - Check that every referenced file exists and has a clear loading purpose.
 - Check that the final package follows the Agent Skills specification.
+- Check for anti-patterns: vague names, summary-only descriptions, too many
+  equal tool options, inconsistent terminology, time-sensitive instructions
+  without a stable fallback, generic knowledge, unused resources, and deep or
+  unsafe paths.
 
 ## NovaFDE Boundary
 

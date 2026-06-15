@@ -174,7 +174,7 @@ Skill Creator 负责：
 - 为相关 Skill 生成调用时机、输入、输出和失败回退的 `derived` handoff。
 - 输出符合 Pydantic schema 的 `SkillIR 1.1` JSON 和完整 `specTrace`。
 
-仓库内保存审计快照（当前 1.1.0，吸收官方 description 写法与三级渐进加载原则；官方交互式 eval/benchmark 工作流被排除，因为 NovaFDE 有自己的确定性校验和评测闭环）：
+仓库内保存审计快照（当前 1.1.0，吸收官方 description 写法、三级渐进加载原则、发现输入、资源选择、自由度分级与反模式检查；官方交互式 eval/benchmark 工作流被排除，因为 NovaFDE 有自己的确定性校验和评测闭环）：
 
 ```text
 backend/app/resources/skill_creator/1.1.0/

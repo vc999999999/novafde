@@ -193,9 +193,9 @@ def test_staged_generation_agents_return_focused_outputs() -> None:
     assert isinstance(knowledge, KnowledgeGenerationResult)
     assert isinstance(quality, QualityGenerationResult)
     assert not hasattr(workflow_agents, "generate_semantic_trace")
-    assert workflow_meta.promptVersion == "workflow-v2-staged-activation"
-    assert knowledge_meta.promptVersion == "knowledge-v1.1-output-spec"
-    assert quality_meta.promptVersion == "quality-v1-staged"
+    assert workflow_meta.promptVersion == "workflow-v2.1-staged-activation"
+    assert knowledge_meta.promptVersion == "knowledge-v1.2-resource-selection"
+    assert quality_meta.promptVersion == "quality-v1.1-freedom"
 
 
 def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() -> None:
@@ -219,7 +219,7 @@ def test_generation_agent_returns_typed_ir_and_restores_authoritative_facts() ->
     assert ir.quality.hardRestrictions == spec.hardRestrictions
     assert ir.platforms.targets == brief.targetPlatforms
     assert metadata.providerId == "provider_test"
-    assert metadata.promptVersion == "generation-v3.5-output-spec"
+    assert metadata.promptVersion == "generation-v3.6-skill-flow"
 
 
 def test_agent_metadata_estimates_cost_from_provider_token_rates() -> None:

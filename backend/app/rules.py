@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-RULE_PACK_VERSION = "2026.06.10"
+RULE_PACK_VERSION = "2026.06.15"
 
 RULES = [
     {
@@ -54,6 +54,13 @@ RULES = [
         "severity": "blocking",
     },
     {
+        "id": "TRIG-002",
+        "category": "description-triggering",
+        "title": "description 必须保持可发现",
+        "description": "frontmatter.description 不得超过规范长度，必须保留具体用户意图、触发词和任务边界。",
+        "severity": "blocking",
+    },
+    {
         "id": "IR-001",
         "category": "skill-structure",
         "title": "Skill IR 必填结构完整",
@@ -89,6 +96,20 @@ RULES = [
         "severity": "blocking",
     },
     {
+        "id": "CTX-001",
+        "category": "progressive-disclosure",
+        "title": "引用资源必须有加载目的",
+        "description": "每个 authored reference 必须说明什么时候加载，避免生成无导航价值的上下文文件。",
+        "severity": "warning",
+    },
+    {
+        "id": "CTX-002",
+        "category": "progressive-disclosure",
+        "title": "资源必须服务于真实流程",
+        "description": "references、scripts 和 assets 只能用于详细知识、确定性自动化和真实模板材料，不得生成占位资源或未使用目录。",
+        "severity": "warning",
+    },
+    {
         "id": "PLAT-001",
         "category": "platform-compatibility",
         "title": "生成目标平台安装说明",
@@ -115,6 +136,13 @@ RULES = [
         "title": "必须包含强制规则",
         "description": "强制规则拥有最高优先级，补充说明和生成器都不能覆盖。",
         "severity": "blocking",
+    },
+    {
+        "id": "RULE-002",
+        "category": "mandatory-rules",
+        "title": "模型不得新增硬限制",
+        "description": "业务硬限制只能来自用户，系统硬限制只能来自确定性基线，模型新增限制必须降级为软性指导。",
+        "severity": "warning",
     },
     {
         "id": "PROVIDER-001",

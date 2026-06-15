@@ -166,6 +166,29 @@ def test_validate_ir_blocks_resource_paths_outside_standard_dirs() -> None:
     )
 
 
+def test_validate_ir_warns_when_authored_reference_has_no_loading_purpose() -> None:
+    from tests.test_quality_orchestrator import valid_ir
+
+    ir = valid_ir()
+    ir.contextEngineering.references = []
+    ir.contextEngineering.referenceFiles = [
+        ReferenceFile(
+            path="references/domain-knowledge.md",
+            purpose="",
+            content="# Domain Knowledge\n\nEvidence rules.",
+        )
+    ]
+
+    items = validate_ir(ir)
+
+    assert any(
+        item.ruleId == "CTX-001"
+        and item.level == "warning"
+        and "references/domain-knowledge.md" in item.description
+        for item in items
+    )
+
+
 def test_spec_compliance_accepts_complete_trace(tmp_path: Path) -> None:
     from tests.test_quality_orchestrator import valid_ir
 

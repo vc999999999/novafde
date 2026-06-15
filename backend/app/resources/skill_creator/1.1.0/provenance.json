@@ -4,6 +4,6 @@
   "sourceRevision": "57546260929473d4e0d1c1bb75297be2fdfa1949",
   "sourceContentSha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
   "importedAt": "2026-06-12",
-  "contentSha256": "e54a81614bc1857274f137dd07627e3b41b0447f3d3a161bb6c028cd94470ca9",
-  "notes": "Audited NovaFDE runtime snapshot derived from the pinned official Skill Creator. 1.1.0 adds the official description doctrine (state what the skill does plus enumerated user intents and native-language trigger keywords, deliberately pushy against under-triggering) and the three-level progressive disclosure model with the 500-line SKILL.md guideline. The local content is intentionally scoped to structured SkillIR generation and deterministic rendering; the official interactive eval/benchmark workflow is excluded because NovaFDE runs its own deterministic validation and judge loop."
+  "contentSha256": "b297c0a6bcd8e39e242114972f9846d00b180e21667522efcfb95865b8510b59",
+  "notes": "Audited NovaFDE runtime snapshot derived from the pinned official Skill Creator. 1.1.0 adds the official description doctrine (state what the skill does plus enumerated user intents and native-language trigger keywords, deliberately pushy against under-triggering), the three-level progressive disclosure model with the 500-line SKILL.md guideline, discovery inputs, resource selection, degrees-of-freedom guidance, and anti-pattern checks. The local content is intentionally scoped to structured SkillIR generation and deterministic rendering; the official interactive eval/benchmark workflow is excluded because NovaFDE runs its own deterministic validation and judge loop."
 }

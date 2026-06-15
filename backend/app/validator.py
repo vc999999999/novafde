@@ -153,6 +153,27 @@ def validate_ir(ir: SkillIR) -> list[ValidationItem]:
                 field="contextEngineering",
             )
         )
+    missing_reference_purposes = [
+        item.path
+        for item in ir.contextEngineering.referenceFiles
+        if not item.purpose.strip()
+    ]
+    if missing_reference_purposes:
+        items.append(
+            ValidationItem(
+                id="ir-reference-purpose-missing",
+                ruleId="CTX-001",
+                level="warning",
+                title="引用资源缺少加载目的",
+                description=(
+                    "以下 authored reference 没有说明什么时候加载："
+                    f"{'，'.join(missing_reference_purposes)}。"
+                ),
+                importance="引用资源需要明确加载场景，才能让执行 Agent 按需读取而不是浪费上下文。",
+                suggestion="为每个 referenceFiles 项补充 purpose，说明对应流程步骤或判断场景。",
+                field="contextEngineering.referenceFiles",
+            )
+        )
     return items
 
 
