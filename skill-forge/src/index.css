@@ -1,31 +1,32 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 /* ============================================================
-   Theme Tokens — map original design system to Tailwind/shadcn
+   Theme Tokens — Light · Minimal · Teal (松石青)
    ============================================================ */
 @theme {
-  /* Colors — light theme, clean and professional (Medium-style) */
+  /* Colors — light minimal: neutral grays + teal accent */
   --color-bg: #ffffff;
-  --color-panel: #fafafa;
-  --color-panel-border: rgba(0, 0, 0, 0.08);
-  --color-panel-hover: rgba(0, 0, 0, 0.12);
-  --color-surface: rgba(0, 0, 0, 0.03);
-  --color-surface-up: rgba(0, 0, 0, 0.05);
-  --color-text: #1a1a1a;
-  --color-text-secondary: rgba(26, 26, 26, 0.65);
-  --color-text-tertiary: rgba(26, 26, 26, 0.45);
-  --color-accent: #dc2626;
-  --color-accent-dim: rgba(220, 38, 38, 0.1);
-  --color-accent-border: rgba(220, 38, 38, 0.25);
-  --color-success: #d97706;
-  --color-success-dim: rgba(217, 119, 6, 0.08);
-  --color-success-border: rgba(217, 119, 6, 0.2);
+  --color-panel: #fafaf9;
+  --color-panel-border: rgba(24, 24, 27, 0.08);
+  --color-panel-hover: rgba(24, 24, 27, 0.14);
+  --color-surface: rgba(24, 24, 27, 0.03);
+  --color-surface-up: rgba(24, 24, 27, 0.05);
+  --color-text: #18181b;
+  --color-text-secondary: rgba(24, 24, 27, 0.62);
+  --color-text-tertiary: rgba(24, 24, 27, 0.42);
+  --color-accent: #0e7c73;
+  --color-accent-dim: rgba(14, 124, 115, 0.1);
+  --color-accent-border: rgba(14, 124, 115, 0.28);
+  --color-success: #15803d;
+  --color-success-dim: rgba(21, 128, 61, 0.1);
+  --color-success-border: rgba(21, 128, 61, 0.22);
   --color-warning: #b45309;
   --color-warning-dim: rgba(180, 83, 9, 0.08);
   --color-warning-border: rgba(180, 83, 9, 0.2);
   --color-error: #b91c1c;
-  --color-error-dim: rgba(185, 28, 28, 0.08);
-  --color-error-border: rgba(185, 28, 28, 0.25);
+  --color-error-dim: rgba(185, 28, 28, 0.07);
+  --color-error-border: rgba(185, 28, 28, 0.22);
 
   /* Override shadcn color variables to match our light theme */
   --color-background: var(--color-bg);
@@ -45,28 +46,27 @@
   --color-destructive: var(--color-error);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-panel-border);
-  --color-input: rgba(0, 0, 0, 0.1);
+  --color-input: rgba(24, 24, 27, 0.1);
   --color-ring: var(--color-accent);
 
-  /* Border radius */
-  --radius-xs: 10px;
-  --radius-sm: 12px;
-  --radius-md: 16px;
-  --radius-lg: 20px;
-  --radius-xl: 24px;
+  /* Border radius — tighter for minimal feel */
+  --radius-xs: 8px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-full: 999px;
   --radius: var(--radius-md);
 
-  /* Shadows — soft and subtle for light theme */
-  --shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.08);
+  /* Shadows — light, neutral, low-key */
+  --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.05);
   --shadow-md:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    0 8px 24px rgba(0, 0, 0, 0.12);
-  --shadow-glow: 0 0 0 1px rgba(220, 38, 38, 0.15), 0 4px 16px rgba(220, 38, 38, 0.1);
+    0 1px 2px rgba(24, 24, 27, 0.04),
+    0 8px 24px -14px rgba(24, 24, 27, 0.16);
+  --shadow-glow: 0 0 0 4px rgba(14, 124, 115, 0.1);
 
   /* Fonts */
-  --font-sans: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-sans: "Inter", "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", "Menlo", monospace;
 
   /* Font sizes — scaled up for readability */
@@ -104,7 +104,7 @@
    Runtime CSS custom properties (responsive overrides use these)
    ============================================================ */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --sidebar-width: 260px;
   --nav-height: 48px;
   --grid-max: 1080px;
@@ -121,24 +121,15 @@
     font-family: var(--font-sans);
     font-size: var(--text-base);
     line-height: var(--leading-normal);
+    letter-spacing: -0.005em;
     background:
-      radial-gradient(ellipse 80% 40% at 50% -8%, rgba(220, 38, 38, 0.04), transparent 60%),
+      radial-gradient(ellipse 80% 36% at 50% -8%, rgba(14, 124, 115, 0.035), transparent 60%),
       var(--color-bg);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  /* Film grain — breaks digital flatness, sits above background, below content */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    opacity: 0.02;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  ::selection { background: rgba(220, 38, 38, 0.15); color: #1a1a1a; }
+  ::selection { background: rgba(14, 124, 115, 0.16); color: #18181b; }
   body.modal-open { overflow: hidden; }
   #root { min-height: 100dvh; display: flex; flex-direction: column; position: relative; z-index: 1; }
   .font-mono, code, pre, [data-numeric] { font-variant-numeric: tabular-nums; }
@@ -150,13 +141,13 @@
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
+::-webkit-scrollbar-thumb { background: rgba(24, 24, 27, 0.16); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(24, 24, 27, 0.28); }
 
 /* Custom keyframes */
 @keyframes pulse-shadow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.3); }
-  50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 124, 115, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(14, 124, 115, 0); }
 }
 @keyframes step-in {
   from { opacity: 0; transform: translateY(10px); }

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NovaFDE · UI 视觉提案 · 暖色杂志质感</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&family=Newsreader:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* —— 纸张与墨色 —— */
+    --paper:        #F4EEE2;   /* 主底色 · 暖象牙 */
+    --paper-2:      #FBF7EE;   /* 卡片 · 更亮的米白 */
+    --paper-3:      #EDE5D5;   /* 凹陷面 */
+    --ink:          #211B12;   /* 主文字 · 暖近黑 */
+    --ink-2:        rgba(33,27,18,.64);
+    --ink-3:        rgba(33,27,18,.42);
+    --line:         rgba(33,27,18,.13);
+    --line-soft:    rgba(33,27,18,.08);
+    /* —— 琥珀 / 金 —— */
+    --amber:        #A9742A;   /* 强调色 · 沉稳琥珀金 */
+    --amber-bright: #C2913E;
+    --amber-soft:   rgba(169,116,42,.10);
+    --amber-line:   rgba(169,116,42,.30);
+    /* —— 状态(去饱和,克制)—— */
+    --ok:           #5B6B3A;
+    --ok-soft:      rgba(91,107,58,.12);
+    --warn:         #9A6A1E;
+    --err:          #9A3B2C;
+
+    --r-sm: 10px; --r-md: 14px; --r-lg: 20px; --r-full: 999px;
+    --serif: "Fraunces", "Songti SC", Georgia, serif;
+    --news:  "Newsreader", Georgia, serif;
+    --sans:  "Inter", "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+    --shadow: 0 1px 2px rgba(33,27,18,.04), 0 12px 32px -16px rgba(33,27,18,.22);
+  }
+
+  *{ box-sizing:border-box; margin:0; }
+  html{ scroll-behavior:smooth; }
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(169,116,42,.07), transparent 55%),
+      var(--paper);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  /* 纸纹 */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  }
+  .wrap{ position:relative; z-index:1; max-width:1180px; margin:0 auto; padding:0 28px 96px; }
+
+  /* ============== 提案封面 ============== */
+  .cover{ padding:64px 0 40px; border-bottom:1px solid var(--line); }
+  .kicker{
+    font-size:11px; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--amber); font-weight:600; display:flex; align-items:center; gap:12px;
+  }
+  .kicker::after{ content:""; height:1px; flex:1; background:var(--amber-line); }
+  .cover h1{
+    font-family:var(--serif); font-weight:500; font-size:clamp(46px,7vw,92px);
+    line-height:.98; letter-spacing:-.02em; margin:22px 0 0;
+  }
+  .cover h1 em{ font-style:italic; color:var(--amber); font-weight:400; }
+  .cover .lede{
+    font-family:var(--news); font-size:19px; line-height:1.6; color:var(--ink-2);
+    max-width:560px; margin-top:22px;
+  }
+  .cover .meta{ display:flex; gap:36px; margin-top:34px; flex-wrap:wrap; }
+  .cover .meta div{ }
+  .cover .meta dt{ font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3); }
+  .cover .meta dd{ font-family:var(--news); font-size:16px; margin-top:5px; }
+  .cover .meta dd .dot{ display:inline-block; width:9px; height:9px; border-radius:50%; vertical-align:middle; margin-right:7px; }
+
+  .section-tag{
+    font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-3);
+    margin:72px 0 18px; display:flex; align-items:center; gap:14px; font-weight:600;
+  }
+  .section-tag b{ color:var(--amber); font-weight:600; font-family:var(--serif); font-size:13px; }
+  .section-tag::after{ content:""; height:1px; flex:1; background:var(--line-soft); }
+
+  /* ============== 产品外壳 mock ============== */
+  .app{
+    background:var(--paper-2); border:1px solid var(--line); border-radius:var(--r-lg);
+    box-shadow:var(--shadow); overflow:hidden;
+  }
+  /* 顶栏 */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; gap:18px;
+    padding:16px 24px; border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(var(--paper-2),var(--paper-2)) padding-box;
+  }
+  .brand{ display:flex; align-items:center; gap:16px; }
+  .logo{ font-family:var(--serif); font-weight:600; font-size:21px; letter-spacing:-.01em; }
+  .logo span{ color:var(--amber); font-style:italic; font-weight:400; }
+  .conn{
+    display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-2);
+    padding:4px 11px; border:1px solid var(--line); border-radius:var(--r-full); background:var(--paper);
+  }
+  .conn .pulse{ width:7px; height:7px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 0 var(--ok-soft); animation:pulse 2.4s infinite; }
+  @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(91,107,58,.4)} 70%{box-shadow:0 0 0 7px rgba(91,107,58,0)} 100%{box-shadow:0 0 0 0 rgba(91,107,58,0)} }
+
+  .nav{ display:flex; gap:2px; background:var(--paper-3); padding:4px; border-radius:var(--r-full); }
+  .nav button{
+    font-family:var(--sans); font-size:13px; color:var(--ink-2); cursor:pointer;
+    border:0; background:transparent; padding:7px 16px; border-radius:var(--r-full);
+    transition:all .25s cubic-bezier(.22,1,.36,1); letter-spacing:.01em;
+  }
+  .nav button:hover{ color:var(--ink); }
+  .nav button.active{
+    background:var(--paper-2); color:var(--ink); font-weight:500;
+    box-shadow:0 1px 2px rgba(33,27,18,.10);
+  }
+  .nav button.active::after{ content:""; }
+
+  /* 创建页主体 */
+  .page{ display:grid; grid-template-columns:248px 1fr; gap:0; }
+  .rail{ border-right:1px solid var(--line-soft); padding:32px 26px; background:linear-gradient(180deg, rgba(169,116,42,.03), transparent 40%); }
+
+  .ring-wrap{ display:flex; flex-direction:column; align-items:center; text-align:center; padding-bottom:26px; border-bottom:1px solid var(--line-soft); margin-bottom:24px; }
+  .ring{ position:relative; width:108px; height:108px; }
+  .ring svg{ transform:rotate(-90deg); }
+  .ring .pct{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring .pct b{ font-family:var(--serif); font-size:30px; font-weight:500; line-height:1; }
+  .ring .pct small{ font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); margin-top:3px; }
+  .ring-wrap .cap{ font-family:var(--news); font-style:italic; color:var(--ink-2); font-size:13.5px; margin-top:14px; }
+
+  .steps{ list-style:none; display:flex; flex-direction:column; gap:4px; }
+  .steps li{ display:flex; gap:13px; align-items:flex-start; padding:11px 12px; border-radius:var(--r-md); cursor:pointer; transition:background .2s; }
+  .steps li:hover{ background:var(--amber-soft); }
+  .steps li.active{ background:var(--paper-2); box-shadow:inset 0 0 0 1px var(--line); }
+  .steps .idx{
+    flex:none; width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    font-family:var(--serif); font-size:13px; border:1px solid var(--line); color:var(--ink-2); background:var(--paper);
+  }
+  .steps li.done .idx{ background:var(--amber); border-color:var(--amber); color:#fff; }
+  .steps li.active .idx{ border-color:var(--amber); color:var(--amber); }
+  .steps .tx b{ display:block; font-size:13.5px; font-weight:500; }
+  .steps .tx span{ font-size:11.5px; color:var(--ink-3); }
+
+  /* 表单区 */
+  .panel{ padding:40px 44px; }
+  .eyebrow{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--amber); font-weight:600; }
+  .panel h2{ font-family:var(--serif); font-weight:500; font-size:34px; letter-spacing:-.015em; margin:10px 0 8px; line-height:1.05; }
+  .panel .sub{ font-family:var(--news); font-size:15.5px; color:var(--ink-2); max-width:520px; line-height:1.6; }
+  .rule{ height:1px; background:var(--line-soft); margin:30px 0; }
+
+  .field{ margin-bottom:26px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; letter-spacing:.02em; margin-bottom:9px; }
+  .field label .opt{ color:var(--ink-3); font-weight:400; font-style:italic; font-family:var(--news); margin-left:6px; }
+  .input, .textarea{
+    width:100%; font-family:var(--sans); font-size:14.5px; color:var(--ink);
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--r-md);
+    padding:13px 15px; transition:all .2s; resize:none;
+  }
+  .input::placeholder, .textarea::placeholder{ color:var(--ink-3); }
+  .input:focus, .textarea:focus{ outline:none; border-color:var(--amber-line); background:var(--paper-2); box-shadow:0 0 0 4px var(--amber-soft); }
+  .textarea{ min-height:96px; line-height:1.6; }
+
+  .chips{ display:flex; gap:9px; flex-wrap:wrap; }
+  .chip{
+    font-size:13px; padding:8px 15px; border-radius:var(--r-full); cursor:pointer;
+    border:1px solid var(--line); background:var(--paper); color:var(--ink-2); transition:all .2s;
+  }
+  .chip:hover{ border-color:var(--amber-line); color:var(--ink); }
+  .chip.sel{ background:var(--ink); color:var(--paper-2); border-color:var(--ink); }
+  .chip.sel.amber{ background:var(--amber); border-color:var(--amber); color:#fff; }
+
+  .footer-bar{ display:flex; align-items:center; justify-content:space-between; margin-top:36px; padding-top:24px; border-top:1px solid var(--line-soft); }
+  .save{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink-3); font-family:var(--news); font-style:italic; }
+  .save .tick{ width:15px; height:15px; border-radius:50%; background:var(--ok-soft); color:var(--ok); display:grid; place-items:center; font-size:9px; font-style:normal; }
+
+  .btn{
+    font-family:var(--sans); font-size:14px; font-weight:500; cursor:pointer;
+    padding:12px 24px; border-radius:var(--r-full); border:1px solid transparent;
+    display:inline-flex; align-items:center; gap:9px; transition:all .25s cubic-bezier(.22,1,.36,1);
+  }
+  .btn-primary{ background:var(--ink); color:var(--paper-2); }
+  .btn-primary:hover{ background:var(--amber); transform:translateY(-1px); box-shadow:0 8px 20px -8px rgba(169,116,42,.6); }
+  .btn-ghost{ background:transparent; color:var(--ink-2); border-color:var(--line); }
+  .btn-ghost:hover{ color:var(--ink); border-color:var(--ink-3); }
+  .arrow{ transition:transform .25s; }
+  .btn-primary:hover .arrow{ transform:translateX(3px); }
+
+  /* ============== 设计系统展示 ============== */
+  .grid{ display:grid; gap:20px; }
+  .cols-2{ grid-template-columns:1fr 1fr; }
+  .cols-3{ grid-template-columns:repeat(3,1fr); }
+  .card{ background:var(--paper-2); border:1px solid var(--line); border-radius:var(--r-md); padding:24px; }
+  .card h3{ font-family:var(--serif); font-weight:500; font-size:18px; margin-bottom:4px; }
+  .card p.desc{ font-family:var(--news); font-size:13.5px; color:var(--ink-2); margin-bottom:18px; }
+
+  .swatches{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .sw{ }
+  .sw .chip-c{ height:62px; border-radius:var(--r-sm); border:1px solid var(--line-soft); }
+  .sw b{ display:block; font-size:11.5px; margin-top:8px; font-weight:600; }
+  .sw span{ font-size:10.5px; color:var(--ink-3); font-family:var(--news); }
+
+  .type-row{ display:flex; align-items:baseline; gap:16px; padding:12px 0; border-bottom:1px solid var(--line-soft); }
+  .type-row:last-child{ border:0; }
+  .type-row .tag{ font-size:10.5px; color:var(--ink-3); letter-spacing:.1em; text-transform:uppercase; width:90px; flex:none; }
+
+  .comp-row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+
+  .pill{ font-size:11.5px; padding:4px 11px; border-radius:var(--r-full); display:inline-flex; align-items:center; gap:6px; border:1px solid; }
+  .pill.ok{ color:var(--ok); border-color:var(--ok-soft); background:var(--ok-soft); }
+  .pill.warn{ color:var(--warn); border-color:rgba(154,106,30,.2); background:rgba(154,106,30,.08); }
+  .pill.err{ color:var(--err); border-color:rgba(154,59,44,.2); background:rgba(154,59,44,.08); }
+
+  .foot{ margin-top:80px; padding-top:24px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--ink-3); }
+  .foot .serif{ font-family:var(--serif); font-style:italic; font-size:15px; color:var(--ink-2); }
+
+  @media (max-width:880px){
+    .page{ grid-template-columns:1fr; }
+    .rail{ border-right:0; border-bottom:1px solid var(--line-soft); }
+    .cols-2,.cols-3{ grid-template-columns:1fr; }
+    .swatches{ grid-template-columns:repeat(3,1fr); }
+    .panel{ padding:28px 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 封面 -->
+  <header class="cover">
+    <div class="kicker">UI 视觉提案 · 暖色杂志质感</div>
+    <h1>Nova<em>FDE</em></h1>
+    <p class="lede">把 Skill 生成器重塑成一本可翻阅的杂志——暖象牙纸张、衬线大标题、琥珀金点缀,让每一步都有呼吸感与质感。</p>
+    <dl class="meta">
+      <div><dt>方向</dt><dd>暖色 · 杂志 / 编辑排版</dd></div>
+      <div><dt>强调色</dt><dd><span class="dot" style="background:var(--amber)"></span>琥珀金 #A9742A</dd></div>
+      <div><dt>字体</dt><dd>Fraunces 衬线 + Inter 无衬线</dd></div>
+      <div><dt>状态</dt><dd>提案预览 · v1</dd></div>
+    </dl>
+  </header>
+
+  <!-- 产品外壳 -->
+  <div class="section-tag"><b>01</b> 创建页 · 应用外壳</div>
+  <div class="app">
+    <!-- 顶栏 -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">Nova<span>FDE</span></div>
+        <div class="conn"><span class="pulse"></span>本地模型已连接</div>
+      </div>
+      <nav class="nav">
+        <button class="active">创建</button>
+        <button>历史</button>
+        <button>规则</button>
+        <button>设置</button>
+        <button>本地运行</button>
+      </nav>
+    </div>
+
+    <!-- 创建页 -->
+    <div class="page">
+      <!-- 左侧步骤栏 -->
+      <aside class="rail">
+        <div class="ring-wrap">
+          <div class="ring">
+            <svg width="108" height="108">
+              <circle cx="54" cy="54" r="48" fill="none" stroke="rgba(33,27,18,.08)" stroke-width="5"/>
+              <circle cx="54" cy="54" r="48" fill="none" stroke="var(--amber)" stroke-width="5" stroke-linecap="round"
+                      stroke-dasharray="301.6" stroke-dashoffset="105.6"/>
+            </svg>
+            <div class="pct"><b>65</b><small>完成度</small></div>
+          </div>
+          <div class="cap">“说清用途,其余交给 Agent。”</div>
+        </div>
+        <ul class="steps">
+          <li class="done"><span class="idx">✓</span><div class="tx"><b>基础信息</b><span>名称与目标平台</span></div></li>
+          <li class="active"><span class="idx">2</span><div class="tx"><b>用途</b><span>使用时机与目标</span></div></li>
+          <li><span class="idx">3</span><div class="tx"><b>知识</b><span>专业信息 · 可选</span></div></li>
+          <li><span class="idx">4</span><div class="tx"><b>补充</b><span>背景与偏好 · 可选</span></div></li>
+        </ul>
+      </aside>
+
+      <!-- 右侧表单 -->
+      <section class="panel">
+        <div class="eyebrow">步骤 02 / 04</div>
+        <h2>用途</h2>
+        <p class="sub">只需说明这个 Skill 在<em>什么时候</em>被用到、希望产出<em>什么结果</em>,其余细节由 Agent 自动补全。</p>
+        <div class="rule"></div>
+
+        <div class="field">
+          <label>使用时机</label>
+          <textarea class="textarea" placeholder="例如:当用户上传一份财报 PDF,需要提取关键财务指标并生成摘要时……"></textarea>
+        </div>
+
+        <div class="field">
+          <label>期望的目标结果</label>
+          <textarea class="textarea" placeholder="例如:输出一份结构化的中文摘要,包含营收、净利、同比变化与风险提示。"></textarea>
+        </div>
+
+        <div class="field">
+          <label>语气偏好 <span class="opt">可选</span></label>
+          <div class="chips">
+            <span class="chip sel amber">专业严谨</span>
+            <span class="chip">简洁直接</span>
+            <span class="chip">亲切口语</span>
+            <span class="chip">学术</span>
+          </div>
+        </div>
+
+        <div class="footer-bar">
+          <div class="save"><span class="tick">✓</span>草稿已自动保存 · 12:04</div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-ghost">上一步</button>
+            <button class="btn btn-primary">继续 <span class="arrow">→</span></button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 配色 -->
+  <div class="section-tag"><b>02</b> 配色 · 纸张与琥珀</div>
+  <div class="card">
+    <div class="swatches">
+      <div class="sw"><div class="chip-c" style="background:#F4EEE2"></div><b>纸张底</b><span>#F4EEE2</span></div>
+      <div class="sw"><div class="chip-c" style="background:#FBF7EE"></div><b>卡片</b><span>#FBF7EE</span></div>
+      <div class="sw"><div class="chip-c" style="background:#211B12"></div><b>墨色</b><span>#211B12</span></div>
+      <div class="sw"><div class="chip-c" style="background:#A9742A"></div><b>琥珀金</b><span>#A9742A</span></div>
+      <div class="sw"><div class="chip-c" style="background:#C2913E"></div><b>亮金</b><span>#C2913E</span></div>
+      <div class="sw"><div class="chip-c" style="background:#5B6B3A"></div><b>成功 · 橄榄</b><span>#5B6B3A</span></div>
+      <div class="sw"><div class="chip-c" style="background:#9A6A1E"></div><b>提醒 · 焦糖</b><span>#9A6A1E</span></div>
+      <div class="sw"><div class="chip-c" style="background:#9A3B2C"></div><b>错误 · 砖红</b><span>#9A3B2C</span></div>
+      <div class="sw"><div class="chip-c" style="background:#EDE5D5"></div><b>凹陷面</b><span>#EDE5D5</span></div>
+      <div class="sw"><div class="chip-c" style="background:#fff; border:1px solid var(--line)"></div><b>留白</b><span>大量呼吸感</span></div>
+    </div>
+  </div>
+
+  <!-- 字体 + 组件 -->
+  <div class="section-tag"><b>03</b> 字体与组件</div>
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>字体阶梯</h3>
+      <p class="desc">衬线 Fraunces 负责标题与情绪,无衬线 Inter 负责清晰的功能文本,Newsreader 斜体做点睛旁注。</p>
+      <div class="type-row"><span class="tag">Display</span><span style="font-family:var(--serif); font-size:36px; font-weight:500; letter-spacing:-.02em;">Skill 创建</span></div>
+      <div class="type-row"><span class="tag">Heading</span><span style="font-family:var(--serif); font-size:24px; font-weight:500;">用途与目标</span></div>
+      <div class="type-row"><span class="tag">Lede</span><span style="font-family:var(--news); font-style:italic; font-size:17px; color:var(--ink-2);">说清用途,其余交给 Agent。</span></div>
+      <div class="type-row"><span class="tag">Body</span><span style="font-size:14.5px;">填写 Skill 名称并选择目标平台。</span></div>
+      <div class="type-row"><span class="tag">Label</span><span style="font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--amber); font-weight:600;">步骤 02 / 04</span></div>
+    </div>
+    <div class="card">
+      <h3>组件</h3>
+      <p class="desc">圆角克制、描边纤细、悬停时主按钮转为琥珀金并轻微上浮。</p>
+      <div class="comp-row" style="margin-bottom:18px;">
+        <button class="btn btn-primary">继续 <span class="arrow">→</span></button>
+        <button class="btn btn-ghost">上一步</button>
+      </div>
+      <div class="comp-row" style="margin-bottom:18px;">
+        <span class="chip sel amber">已选</span>
+        <span class="chip">未选</span>
+        <span class="chip">可选项</span>
+      </div>
+      <div class="comp-row" style="margin-bottom:18px;">
+        <span class="pill ok">● 通过校验</span>
+        <span class="pill warn">● 建议补充</span>
+        <span class="pill err">● 缺失字段</span>
+      </div>
+      <input class="input" placeholder="输入框 · 聚焦时琥珀描边 + 柔光" />
+    </div>
+  </div>
+
+  <!-- 交互理念 -->
+  <div class="section-tag"><b>04</b> 交互理念</div>
+  <div class="grid cols-3">
+    <div class="card">
+      <h3>翻页式向导</h3>
+      <p class="desc" style="margin:0;">四个步骤像杂志的章节,左栏进度环用衬线数字呈现完成度,切换时内容轻柔上浮淡入。</p>
+    </div>
+    <div class="card">
+      <h3>克制的动效</h3>
+      <p class="desc" style="margin:0;">悬停上浮、聚焦柔光、状态脉冲——全部低幅度、慢曲线,尊重「prefers-reduced-motion」。</p>
+    </div>
+    <div class="card">
+      <h3>编辑式留白</h3>
+      <p class="desc" style="margin:0;">用纤细分隔线与大间距替代色块堆叠,信息密度低但层级清晰,像读一篇排版讲究的长文。</p>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span class="serif">NovaFDE — 暖色杂志质感 · 视觉提案</span>
+    <span>琥珀金 #A9742A · Fraunces × Inter · 单文件预览</span>
+  </footer>
+
+</div>
+
+<script>
+  // 顶栏 / 步骤栏的轻交互(仅切换 active 态,演示用)
+  document.querySelectorAll('.nav button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+    });
+  });
+  document.querySelectorAll('.chips').forEach(group=>{
+    group.querySelectorAll('.chip').forEach(c=>{
+      c.addEventListener('click',()=>{
+        group.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel','amber'));
+        c.classList.add('sel','amber');
+      });
+    });
+  });
+</script>
+</body>
+</html>

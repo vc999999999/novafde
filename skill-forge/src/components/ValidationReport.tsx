@@ -32,7 +32,7 @@ export default function ValidationReport({ items }: Props) {
       </div>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
-          <div key={item.id} className="flex items-start gap-3 p-3 px-4 rounded-[var(--radius-md)] border border-white/6 bg-surface">
+          <div key={item.id} className="flex items-start gap-3 p-3 px-4 rounded-[var(--radius-md)] border border-black/6 bg-surface">
             <div className={cn(
               'w-2 h-2 rounded-full shrink-0 mt-[5px]',
               item.level === 'pass' && 'bg-success',

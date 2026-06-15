@@ -181,7 +181,7 @@ function ProviderEditor({
     }));
 
   return (
-    <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
+    <Card className="bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-5">
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 [&>*]:space-y-1.5">
         <div className="md:col-span-2">
           <Label className="text-muted-foreground">Quick fill Provider</Label>
@@ -624,23 +624,23 @@ export default function SettingsPage() {
       )}
 
       <div className="flex flex-col gap-4 max-w-[780px]">
-        <Card className="mb-6 bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
+        <Card className="mb-6 bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-5">
           <div className="flex justify-between items-center mb-3">
             <p className="mb-0 text-xs tracking-[0.18em] uppercase text-muted-foreground">模型 Provider</p>
             <Button variant="outline" size="sm" onClick={handleAddProvider} type="button">+ 新增</Button>
           </div>
           <p className="text-xs text-muted-foreground my-0 mb-4">配置 Anthropic 协议或 OpenAI-compatible 协议的大模型供应商</p>
 
-          {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">正在从后端加载 Provider...</div>}
+          {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-black/10 text-muted-foreground">正在从后端加载 Provider...</div>}
           {!loading && providers.length === 0 && (
-            <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">还没有配置任何 Provider，点击「新增」添加</div>
+            <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-black/10 text-muted-foreground">还没有配置任何 Provider，点击「新增」添加</div>
           )}
 
           {providers.map((provider) => {
             const testResult = testResults[provider.id] || (provider.lastTest ? toConnectionResult(provider.lastTest) : { status: 'idle' });
 
             return (
-              <div key={provider.id} className="mb-2 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-panel-border bg-surface p-3 px-4 transition-[border-color,background-color] duration-200 hover:border-white/15 hover:bg-surface-up">
+              <div key={provider.id} className="mb-2 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-panel-border bg-surface p-3 px-4 transition-[border-color,background-color] duration-200 hover:border-black/15 hover:bg-surface-up">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold">{provider.name || '未命名'}</span>
@@ -648,7 +648,7 @@ export default function SettingsPage() {
                       'text-[11px] tracking-widest uppercase gap-1.5',
                       provider.enabled
                         ? 'bg-success-dim text-success border border-success-border'
-                        : 'bg-white/5 text-muted-foreground border border-white/8'
+                        : 'bg-black/5 text-muted-foreground border border-black/8'
                     )}>
                       <span className={cn('w-1.5 h-1.5 rounded-full', provider.enabled ? 'bg-success' : 'bg-muted-foreground')} />
                       {provider.enabled ? '启用' : '未启用'}
@@ -685,7 +685,7 @@ export default function SettingsPage() {
           })}
         </Card>
 
-        <Card className="mb-6 bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
+        <Card className="mb-6 bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-5">
           <p className="text-xs tracking-[0.18em] uppercase text-muted-foreground mb-2">默认策略</p>
           <p className="text-xs text-muted-foreground my-0 mb-4">为每个环节指定默认 Provider，实际调用会落实到该 Provider 配置的模型；未指定或不可用时回退到第一个具备对应角色的启用 Provider</p>
           <div className="flex flex-col gap-4">
@@ -729,7 +729,7 @@ export default function SettingsPage() {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
+        <Card className="bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-5">
           <p className="text-xs tracking-[0.18em] uppercase text-muted-foreground mb-2">存储</p>
           <p className="text-xs text-muted-foreground my-0">草稿、Provider 和生成记录由本地后端持久化到 SQLite 与 artifact 目录</p>
         </Card>

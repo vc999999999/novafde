@@ -104,7 +104,7 @@ export default function SupplementDialog({
                 {question.inputControl === 'single-select' && (
                   <select
                     id={question.issueId}
-                    className="w-full rounded-[var(--radius-sm)] border border-white/10 bg-surface p-2.5 text-sm"
+                    className="w-full rounded-[var(--radius-sm)] border border-black/10 bg-surface p-2.5 text-sm"
                     value={typeof value === 'string' ? value : ''}
                     onChange={(event) => setAnswers((current) => ({
                       ...current,

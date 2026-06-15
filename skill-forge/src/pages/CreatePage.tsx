@@ -361,7 +361,7 @@ export default function CreatePage({
                     ? 'bg-success'
                     : autosaveStatus === 'saving'
                       ? 'bg-accent animate-[saving-pulse_1s_ease-in-out_infinite]'
-                      : 'bg-white/20',
+                      : 'bg-black/20',
               )}
             />
             <span className={cn(
@@ -725,14 +725,14 @@ export default function CreatePage({
                     <TabsTrigger
                       key={tab.value}
                       value={tab.value}
-                      className="flex-none rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-white/12 data-[state=active]:text-foreground"
+                      className="flex-none rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-black/12 data-[state=active]:text-foreground"
                     >
                       {tab.label}
                     </TabsTrigger>
                   ))}
                 </TabsList>
                 <TabsContent value="skillmd" className="animate-step-in">
-                  <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-white/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
+                  <pre className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-black/6 bg-[#060608] p-4 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
                     {generation.skillMd || '暂无预览'}
                   </pre>
                 </TabsContent>

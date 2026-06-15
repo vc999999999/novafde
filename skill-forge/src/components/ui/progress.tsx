@@ -26,7 +26,7 @@ function Progress({
       >
         <span
           aria-hidden
-          className="absolute inset-y-0 left-0 w-1/3 -skew-x-12 bg-white/30 blur-[4px] animate-[shimmer-sweep_2s_ease-in-out_infinite]"
+          className="absolute inset-y-0 left-0 w-1/3 -skew-x-12 bg-white/40 blur-[4px] animate-[shimmer-sweep_2s_ease-in-out_infinite]"
         />
       </ProgressPrimitive.Indicator>
     </ProgressPrimitive.Root>

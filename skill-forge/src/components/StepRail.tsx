@@ -43,7 +43,7 @@ function ProgressRing({ value }: { value: number }) {
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="rgba(255,255,255,0.07)"
+          stroke="rgba(24,24,27,0.08)"
           strokeWidth={stroke}
         />
         <circle
@@ -60,7 +60,7 @@ function ProgressRing({ value }: { value: number }) {
           style={{
             filter: complete
               ? 'drop-shadow(0 0 6px rgba(74, 222, 128, 0.4))'
-              : 'drop-shadow(0 0 6px rgba(108, 156, 255, 0.4))',
+              : 'drop-shadow(0 0 6px rgba(14,124,115, 0.4))',
           }}
         />
       </svg>
@@ -96,20 +96,20 @@ export default function StepRail({ steps, completions, overall, currentStep, onS
               onClick={() => onStepClick(i)}
               aria-current={state === 'active' ? 'step' : undefined}
               className={cn(
-                'group relative flex cursor-pointer items-start gap-3 rounded-lg px-2 py-3 text-left transition-colors duration-200 hover:bg-white/4',
+                'group relative flex cursor-pointer items-start gap-3 rounded-lg px-2 py-3 text-left transition-colors duration-200 hover:bg-black/4',
                 i < steps.length - 1
                   && 'after:absolute after:bottom-0 after:left-[21px] after:top-11 after:w-px after:transition-colors after:duration-500',
-                i < steps.length - 1 && (state === 'done' ? 'after:bg-success/50' : 'after:bg-white/8'),
+                i < steps.length - 1 && (state === 'done' ? 'after:bg-success/50' : 'after:bg-black/8'),
               )}
             >
               <span
                 className={cn(
                   'flex size-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-all duration-300',
                   state === 'active'
-                    ? 'border-accent bg-accent text-black animate-[pulse-shadow_2.4s_ease-in-out_infinite]'
+                    ? 'border-accent bg-accent text-white animate-[pulse-shadow_2.4s_ease-in-out_infinite]'
                     : state === 'done'
-                      ? 'border-success bg-success text-black'
-                      : 'border-white/12 bg-surface text-muted-foreground group-hover:border-white/24',
+                      ? 'border-success bg-success text-white'
+                      : 'border-black/12 bg-surface text-muted-foreground group-hover:border-black/24',
                 )}
               >
                 {state === 'done'
@@ -138,7 +138,7 @@ export default function StepRail({ steps, completions, overall, currentStep, onS
                     {completions[i]}%
                   </span>
                 </span>
-                <span className="h-[2px] w-full overflow-hidden rounded-full bg-white/6">
+                <span className="h-[2px] w-full overflow-hidden rounded-full bg-black/6">
                   <span
                     className="block h-full rounded-full transition-all duration-500 ease-out"
                     style={{

@@ -37,7 +37,7 @@ function CopyButton({ text }: { text: string }) {
 
 function CommandCard({ cmd }: { cmd: CliCommandHelp }) {
   return (
-    <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-4 transition-colors duration-200 hover:border-white/15">
+    <Card className="bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-4 transition-colors duration-200 hover:border-black/15">
       <div className="flex justify-between items-start gap-3 mb-3">
         <div>
           <h3 className="text-sm font-semibold my-0 mb-1">{cmd.command}</h3>
@@ -46,10 +46,10 @@ function CommandCard({ cmd }: { cmd: CliCommandHelp }) {
         <CopyButton text={cmd.command} />
       </div>
 
-      <pre className="p-3 rounded-[var(--radius-md)] bg-[#060608] border border-white/6 text-[#f5f5f5] font-mono text-xs leading-[1.6] whitespace-pre-wrap word-break-all m-0 mb-3">{cmd.command}</pre>
+      <pre className="p-3 rounded-[var(--radius-md)] bg-[#060608] border border-black/6 text-[#f5f5f5] font-mono text-xs leading-[1.6] whitespace-pre-wrap word-break-all m-0 mb-3">{cmd.command}</pre>
 
       <div className="flex flex-wrap gap-2 mb-2">
-        <Badge className="bg-white/5 text-muted-foreground border border-white/8 text-[11px] tracking-widest uppercase gap-1.5">
+        <Badge className="bg-black/5 text-muted-foreground border border-black/8 text-[11px] tracking-widest uppercase gap-1.5">
           {cmd.repeatable ? '可重复执行' : '一次性'}
         </Badge>
         <Badge className={cn(
@@ -64,12 +64,12 @@ function CommandCard({ cmd }: { cmd: CliCommandHelp }) {
           'text-[11px] tracking-widest uppercase gap-1.5',
           cmd.dangerLevel === 'high'
             ? 'bg-error-dim text-error border border-error-border'
-            : 'bg-white/5 text-muted-foreground border border-white/8'
+            : 'bg-black/5 text-muted-foreground border border-black/8'
         )}>
           风险: {cmd.dangerLevel}
         </Badge>
         {cmd.writes.length > 0 && (
-          <Badge className="bg-white/5 text-muted-foreground border border-white/8 text-[11px] tracking-widest uppercase gap-1.5">
+          <Badge className="bg-black/5 text-muted-foreground border border-black/8 text-[11px] tracking-widest uppercase gap-1.5">
             写入: {cmd.writes.join(', ')}
           </Badge>
         )}
@@ -133,7 +133,7 @@ export default function LocalRunPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">正在从后端加载 CLI 命令...</div>}
+      {loading && <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-black/10 text-muted-foreground">正在从后端加载 CLI 命令...</div>}
 
       <div className="mb-6">
         <p className="text-[12px] tracking-[0.18em] uppercase text-muted-foreground mb-2">Shell 脚本</p>
@@ -167,7 +167,7 @@ export default function LocalRunPage() {
         </div>
       )}
 
-      <Card className="bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md p-5">
+      <Card className="bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md p-5">
         <p className="text-[12px] tracking-[0.18em] uppercase text-muted-foreground mb-2">快速参考</p>
         <div className="flex flex-col gap-2 mt-2">
           <div className="flex justify-between text-xs py-1">

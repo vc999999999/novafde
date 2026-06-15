@@ -21,7 +21,7 @@ type StatusStyle = {
 
 /* Same panel style as LocalRunPage cards: subtle border + soft gradient */
 const PANEL_CARD_CLASS =
-  'bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md';
+  'bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md';
 
 const STATUS_MAP: Record<HistoryItemStatus, StatusStyle> = {
   draft: { label: '草稿', variant: 'secondary', dotColor: 'bg-text-secondary' },
@@ -150,24 +150,24 @@ export default function HistoryPage({
             <Card key={i} className={cn(PANEL_CARD_CLASS, 'animate-pulse gap-4 p-5')}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 w-2/3 rounded bg-white/8" />
-                  <div className="h-3 w-1/2 rounded bg-white/5" />
+                  <div className="h-4 w-2/3 rounded bg-black/8" />
+                  <div className="h-3 w-1/2 rounded bg-black/5" />
                 </div>
-                <div className="h-5 w-16 rounded-full bg-white/6" />
+                <div className="h-5 w-16 rounded-full bg-black/6" />
               </div>
               <div className="flex gap-2">
-                <div className="h-6 w-20 rounded-full bg-white/5" />
-                <div className="h-6 w-16 rounded-full bg-white/5" />
+                <div className="h-6 w-20 rounded-full bg-black/5" />
+                <div className="h-6 w-16 rounded-full bg-black/5" />
               </div>
-              <div className="h-9 w-full rounded-md bg-white/6" />
+              <div className="h-9 w-full rounded-md bg-black/6" />
             </Card>
           ))}
         </div>
       )}
 
       {!loading && items.length === 0 && (
-        <div className="animate-step-in flex flex-col items-center gap-3 rounded-[var(--radius-md)] border border-dashed border-white/10 px-5 py-16 text-center">
-          <div className="flex size-12 items-center justify-center rounded-full border border-white/10 bg-surface">
+        <div className="animate-step-in flex flex-col items-center gap-3 rounded-[var(--radius-md)] border border-dashed border-black/10 px-5 py-16 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full border border-black/10 bg-surface">
             <History className="size-5 text-tertiary" />
           </div>
           <p className="text-sm text-muted-foreground">还没有历史记录</p>
@@ -190,7 +190,7 @@ export default function HistoryPage({
 
           /* Separate per-status Badge styles with custom CSS var colors */
           const badgeClassMap: Record<HistoryItemStatus, string> = {
-            draft: 'bg-white/5 text-text-secondary border-white/8',
+            draft: 'bg-black/5 text-text-secondary border-black/8',
             generating: 'bg-accent-dim text-accent border-accent-border',
             validating: 'bg-warning-dim text-warning border-warning-border',
             downloadable: 'bg-success-dim text-success border-success-border',
@@ -253,7 +253,7 @@ export default function HistoryPage({
                   {item.platforms.map((platform) => (
                     <span
                       key={platform}
-                      className="pointer-events-none rounded-full border border-white/12 bg-surface px-2 py-1 text-[12px] text-text-secondary"
+                      className="pointer-events-none rounded-full border border-black/12 bg-surface px-2 py-1 text-[12px] text-text-secondary"
                     >
                       {platform}
                     </span>

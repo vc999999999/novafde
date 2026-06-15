@@ -55,16 +55,16 @@ export default function PipelineProgress({
               className={cn(
                 'animate-step-in flex items-start gap-3 py-3 relative',
                 i < STAGES.length - 1 && 'after:content-[""] after:absolute after:left-[13px] after:top-10 after:bottom-0 after:w-px after:transition-colors after:duration-500',
-                i < STAGES.length - 1 && (isCompleted ? 'after:bg-success' : 'after:bg-white/8')
+                i < STAGES.length - 1 && (isCompleted ? 'after:bg-success' : 'after:bg-black/8')
               )}
               style={{ '--enter-delay': `${i * 40}ms` } as CSSProperties}
             >
               <div className={cn(
                 'w-7 h-7 rounded-full border flex items-center justify-center shrink-0 text-xs font-medium transition-all duration-300',
-                isCompleted && 'bg-success border-success text-black',
-                isActive && 'bg-accent border-accent text-black animate-[pulse-shadow_2s_ease-in-out_infinite]',
-                isFailedStage && 'bg-error border-error text-black',
-                !isCompleted && !isActive && !isFailedStage && 'border-white/12 bg-surface text-muted-foreground'
+                isCompleted && 'bg-success border-success text-white',
+                isActive && 'bg-accent border-accent text-white animate-[pulse-shadow_2s_ease-in-out_infinite]',
+                isFailedStage && 'bg-error border-error text-white',
+                !isCompleted && !isActive && !isFailedStage && 'border-black/12 bg-surface text-muted-foreground'
               )}>
                 {isCompleted ? <span className="animate-[check-pop_0.3s_ease-out]">✓</span> : i + 1}
               </div>

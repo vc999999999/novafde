@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 /* Same panel style as LocalRunPage cards: subtle border + soft gradient */
 const PANEL_CARD_CLASS =
-  'bg-gradient-to-b from-white/[0.035] to-white/[0.01] border-panel-border shadow-md';
+  'bg-gradient-to-b from-black/[0.035] to-black/[0.01] border-panel-border shadow-md';
 
 function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : '规则加载失败。';
@@ -70,8 +70,8 @@ export default function RulesPage() {
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Card key={i} className={cn(PANEL_CARD_CLASS, 'animate-pulse gap-2 p-4')}>
-              <div className="h-3 w-1/2 rounded bg-white/5" />
-              <div className="h-6 w-1/3 rounded bg-white/8" />
+              <div className="h-3 w-1/2 rounded bg-black/5" />
+              <div className="h-6 w-1/3 rounded bg-black/8" />
             </Card>
           ))}
         </div>
@@ -146,7 +146,7 @@ export default function RulesPage() {
       )}
 
       {!loading && rules.length === 0 && (
-        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground text-[length:var(--text-base)]">
+        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-black/10 text-muted-foreground text-[length:var(--text-base)]">
           暂无质量规则
         </div>
       )}
@@ -160,7 +160,7 @@ export default function RulesPage() {
             {rules
               .filter((rule) => rule.category === category)
               .map((rule) => (
-                <Card key={rule.id} className={cn(PANEL_CARD_CLASS, 'py-4 transition-colors duration-200 hover:border-white/15')}>
+                <Card key={rule.id} className={cn(PANEL_CARD_CLASS, 'py-4 transition-colors duration-200 hover:border-black/15')}>
                   <CardHeader className="pb-1">
                     <div className="flex w-full items-start justify-between gap-3">
                       <CardTitle className="text-[length:var(--text-base)] font-semibold leading-tight">

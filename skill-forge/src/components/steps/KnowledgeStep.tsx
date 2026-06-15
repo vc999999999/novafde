@@ -17,7 +17,7 @@ function PitfallEditor({ pitfall, onUpdate, onRemove }: {
   onRemove: () => void;
 }) {
   return (
-    <div className="flex flex-col items-stretch gap-0 p-3 px-4 rounded-[var(--radius-md)] border border-white/6 bg-surface mb-2 transition-colors hover:border-white/12">
+    <div className="flex flex-col items-stretch gap-0 p-3 px-4 rounded-[var(--radius-md)] border border-black/6 bg-surface mb-2 transition-colors hover:border-black/12">
       <div className="flex justify-between items-center mb-2">
         <span className="text-xs text-accent font-mono">常见错误或反例</span>
         <button
@@ -110,7 +110,7 @@ export default function KnowledgeStep({ draft, onUpdateKnowledge }: Props) {
       </p>
 
       {k.pitfalls.length === 0 && (
-        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-white/10 text-muted-foreground">
+        <div className="py-10 px-5 text-center rounded-[var(--radius-md)] border border-dashed border-black/10 text-muted-foreground">
           还没有添加反例，点击「添加一项」补充
         </div>
       )}

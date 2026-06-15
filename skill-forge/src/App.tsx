@@ -8,14 +8,15 @@ import LocalRunPage from './pages/LocalRunPage';
 import ModelConnectionStatus from './components/ModelConnectionStatus';
 import { getModelConnectionStatus } from './api';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { History, Scale, Settings, Sparkles, Terminal, type LucideIcon } from 'lucide-react';
 
 
-const NAV_ITEMS: { key: Page; label: string }[] = [
-  { key: 'create', label: '创建' },
-  { key: 'history', label: '历史' },
-  { key: 'rules', label: '规则' },
-  { key: 'settings', label: '设置' },
-  { key: 'local', label: '本地运行' },
+const NAV_ITEMS: { key: Page; label: string; icon: LucideIcon }[] = [
+  { key: 'create', label: '创建', icon: Sparkles },
+  { key: 'history', label: '历史', icon: History },
+  { key: 'rules', label: '规则', icon: Scale },
+  { key: 'settings', label: '设置', icon: Settings },
+  { key: 'local', label: '本地运行', icon: Terminal },
 ];
 
 const INITIAL_CONNECTION: Connection = {
@@ -79,7 +80,7 @@ export default function App() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col px-5 pb-12 pt-5">
-      <header className="sticky top-0 z-40 -mx-5 -mt-5 mb-4 flex flex-col items-stretch justify-between gap-3 border-b border-white/[0.05] bg-bg/75 px-5 pb-3 pt-4 backdrop-blur-xl sm:flex-row sm:items-center">
+      <header className="sticky top-0 z-40 -mx-5 -mt-5 mb-4 flex flex-col items-stretch justify-between gap-3 border-b border-panel-border bg-bg/80 px-5 pb-3 pt-4 backdrop-blur-xl sm:flex-row sm:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <a
             className="select-none text-sm font-bold tracking-wide text-foreground no-underline"
@@ -110,15 +111,19 @@ export default function App() {
           className="w-full min-w-0 overflow-x-auto sm:w-auto"
         >
           <TabsList className="h-auto w-max min-w-full gap-1 rounded-full border border-panel-border bg-surface px-[3px] py-[3px] sm:min-w-0">
-            {NAV_ITEMS.map((item) => (
-              <TabsTrigger
-                key={item.key}
-                value={item.key}
-                className="rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-white/12 data-[state=active]:text-foreground"
-              >
-                {item.label}
-              </TabsTrigger>
-            ))}
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <TabsTrigger
+                  key={item.key}
+                  value={item.key}
+                  className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-bg data-[state=active]:text-foreground data-[state=active]:shadow-sm [&>svg]:size-3.5 [&>svg]:text-tertiary data-[state=active]:[&>svg]:text-accent"
+                >
+                  <Icon strokeWidth={2} />
+                  {item.label}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </Tabs>
       </header>

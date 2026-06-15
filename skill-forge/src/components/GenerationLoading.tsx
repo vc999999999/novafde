@@ -102,14 +102,14 @@ export default function GenerationLoading({
               </span>
             )}
             {currentRound > 0 && (
-              <span className="rounded-full border border-white/10 bg-surface px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+              <span className="rounded-full border border-black/10 bg-surface px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
                 第 {currentRound}/{maxRepairRounds} 轮优化
               </span>
             )}
           </div>
         </div>
 
-        <div className="relative mt-6 rounded-lg border border-white/8 bg-surface/70 p-4">
+        <div className="relative mt-6 rounded-lg border border-black/8 bg-surface/70 p-4">
           <PipelineProgress
             currentStage={stage}
             progress={progress}
