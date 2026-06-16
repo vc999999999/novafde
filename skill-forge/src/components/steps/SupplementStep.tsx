@@ -7,11 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 /* 与后端 app/models.py 中 OutputSpecFile 的限制保持一致 */
-export const OUTPUT_SPEC_ALLOWED_EXTENSIONS = [
+const OUTPUT_SPEC_ALLOWED_EXTENSIONS = [
   'md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'csv', 'tsv', 'xml', 'html',
 ];
-export const OUTPUT_SPEC_MAX_BYTES = 65_536; // 64 KB
-export const OUTPUT_SPEC_MAX_FILES = 3;
+const OUTPUT_SPEC_MAX_BYTES = 65_536; // 64 KB
+const OUTPUT_SPEC_MAX_FILES = 3;
 
 const ACCEPT_ATTR = OUTPUT_SPEC_ALLOWED_EXTENSIONS.map((ext) => `.${ext}`).join(',');
 
