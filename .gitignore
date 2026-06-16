@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
 dist/
 build/
 
@@ -15,6 +17,8 @@ pnpm-debug.log*
 
 # Build output
 skill-forge/dist/
+dist/
+build/
 
 # Environment
 .env
@@ -26,9 +30,12 @@ logs/
 *.log
 
 # Runtime data
-backend/.data/artifacts/
+backend/.data/
+backend/backend/.data/
+tmp/
 
 # Editor
+.claude/
 .vscode/
 .idea/
 *.sw?
@@ -40,4 +47,17 @@ backend/.data/artifacts/
 Thumbs.db
 
 # Generated
-config/providers.local.json
+config/
+backend/.data/
+logs/
+
+# Internal planning and local QA artifacts
+docs/
+backend/tests/
+backend/evals/
+skill-forge/src/test/
+skill-forge/**/*.test.*
+skill-forge/screenshots/
+CHANGELOG-FIXES.md
+ui-*.html
+/package-lock.json

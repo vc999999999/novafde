@@ -89,6 +89,46 @@ sh scripts/install.sh
 
 The installer creates `.venv`, installs backend dependencies from `backend/requirements.txt`, installs frontend dependencies in `skill-forge/`, and initializes local data directories.
 
+## AI Copy: One-Pass Local Setup
+
+Copy this command when you want an AI coding agent or terminal helper to install dependencies, write the default local model config, and run diagnostics from the project root:
+
+```bash
+sh scripts/install.sh && sh scripts/setup-llm.sh && sh scripts/doctor.sh
+```
+
+Or copy this prompt into Codex, Claude Code, or another local coding agent:
+
+```text
+You are in the NovaFDE repository root.
+
+Set up the project locally:
+1. Confirm the current directory contains README.md, backend/, skill-forge/, and scripts/.
+2. Run: sh scripts/install.sh
+3. Run: sh scripts/setup-llm.sh
+4. Run: sh scripts/doctor.sh
+5. If diagnostics pass, tell me to add and test the API key in the Settings page, or export the configured key environment variable before running the app.
+
+Safety rules:
+- Do not ask me to paste a plaintext API key into chat.
+- Do not print any API key value.
+- If a command fails, stop and report the failed command, the error output, and any relevant files under logs/.
+
+After setup, start NovaFDE with:
+sh scripts/run.sh
+```
+
+For an OpenAI-compatible provider, replace step 3 with:
+
+```bash
+export SKILLFORGE_PROVIDER_PROTOCOL=openai-compatible
+export SKILLFORGE_PROVIDER_NAME="local-ollama"
+export SKILLFORGE_PROVIDER_BASE_URL="http://localhost:11434"
+export SKILLFORGE_PROVIDER_MODEL="llama3"
+export SKILLFORGE_PROVIDER_KEY_ENV="OPENAI_API_KEY"
+sh scripts/setup-llm.sh
+```
+
 ## Configure a Model
 
 Create a local provider config:
@@ -139,15 +179,8 @@ Frontend development:
 ```bash
 cd skill-forge
 npm run dev
-npm run test
 npm run build
 npm run preview
-```
-
-Backend verification:
-
-```bash
-.venv/bin/python -m pytest backend/tests
 ```
 
 ## Architecture
@@ -164,14 +197,13 @@ novafde/
 │   │   ├── validator.py        # validation, spec compliance, skills-ref checks
 │   │   ├── quality.py          # score aggregation and candidate selection
 │   │   └── resources/          # audited Skill Creator methodology snapshots
-│   └── tests/
 ├── skill-forge/
 │   ├── src/components/         # wizard, reports, controls, page chrome
 │   ├── src/pages/              # Create, History, Rules, Settings, Local Run
 │   └── src/index.css           # light minimal teal theme
 ├── scripts/                    # install, run, doctor, setup, cleanup
-├── config/                     # local provider config
-└── logs/                       # runtime logs
+├── config/                     # local provider config, created at runtime
+└── logs/                       # runtime logs, created at runtime
 ```
 
 The backend never asks the model to write arbitrary files or zip archives directly. Models return typed structures; NovaFDE renders, validates, and packages them through local code.

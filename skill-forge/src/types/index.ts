@@ -292,7 +292,7 @@ export interface HistoryItem {
   updatedAt: string;
 }
 
-// --- Provider config types (PRD FR-10, FR-11) ---
+// --- Provider config types ---
 
 export type ProviderProtocol = 'anthropic' | 'openai-compatible';
 
@@ -363,7 +363,7 @@ export interface ConnectionTestResult {
   errorMessage?: string;
 }
 
-// --- CLI help types (PRD FR-12) ---
+// --- CLI help types ---
 
 export type DangerLevel = 'low' | 'medium' | 'high';
 
