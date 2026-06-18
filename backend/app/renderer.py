@@ -126,10 +126,10 @@ def render_skill_md_text(ir: SkillIR) -> str:
 
     lines.extend(
         [
-        "## Workflow",
-        "",
-        f"**Objective:** {ir.workflow.objective}",
-        "",
+            "## Workflow",
+            "",
+            f"**Objective:** {ir.workflow.objective}",
+            "",
         ]
     )
     for index, step in enumerate(ir.workflow.steps, start=1):

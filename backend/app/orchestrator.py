@@ -1504,7 +1504,7 @@ class QualityOrchestrator:
         current_round: int | None = None,
         provider: ModelProviderConfig | None = None,
     ) -> None:
-        # status is a string literal matching GenerationStatus; enforced at runtime by assert_generation_transition
+        # status is a string literal matching GenerationStatus; validated at runtime by assert_generation_transition
         assert_generation_transition(generation.status, status)
         generation.status = status  # type: ignore[assignment]
         generation.currentStage = stage  # type: ignore[assignment]
