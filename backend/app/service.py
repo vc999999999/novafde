@@ -827,7 +827,11 @@ class SkillForgeService:
                 self._resuming_runs.discard(generation_id)
 
     def _resolve_provider_for_role(self, role: str, preferred_id: str = "") -> ModelProviderConfig | None:
-        """Find the best provider for a role, preferring the saved default."""
+        """Find the best provider for a role, preferring the saved default.
+
+        Falls back to the first enabled provider with the required role if the
+        preferred provider is not found, disabled, or lacks the required role.
+        """
         if preferred_id:
             provider = self.storage.get_provider(preferred_id)
             if provider and provider.enabled and role in provider.roles:
