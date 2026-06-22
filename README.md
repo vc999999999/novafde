@@ -196,6 +196,9 @@ novafde/
 │   │   ├── renderer.py         # deterministic SKILL.md/package rendering
 │   │   ├── validator.py        # validation, spec compliance, skills-ref checks
 │   │   ├── quality.py          # score aggregation and candidate selection
+│   │   ├── storage.py          # SQLite persistence and draft history
+│   │   ├── models.py           # Pydantic data models and request/response schemas
+│   │   ├── agent.py            # LLM provider integration and agent runtime
 │   │   └── resources/          # audited Skill Creator methodology snapshots
 ├── skill-forge/
 │   ├── src/components/         # wizard, reports, controls, page chrome
