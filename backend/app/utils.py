@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Shared utility helpers for the NovaFDE backend.
 
 Provides timestamp generation, ID creation, path safety checks,
 text sanitization, file hashing, and secret redaction used across
 the generation pipeline.
 """
+
+from __future__ import annotations
 
 import json
 import re
