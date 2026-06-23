@@ -46,7 +46,7 @@ BACKEND_PID="$!"
 (cd skill-forge && npm run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT") > logs/frontend.log 2>&1 &
 FRONTEND_PID="$!"
 
-# --- Health checks -----------------------------------------------------------
+# --- Health checks ------------------------------------------------------------
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-30}"
 HEALTH_INTERVAL=2
 
