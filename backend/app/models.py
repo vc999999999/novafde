@@ -89,6 +89,8 @@ ProviderRole = Literal[
     "activation-evaluation",
     "implementation-evaluation",
     "validation-explanation",
+    "trigger-evaluation",
+    "task-evaluation",
 ]
 ProviderTestStatus = Literal["passed", "failed"]
 ProviderFailureCategory = Literal[
@@ -940,4 +942,212 @@ class AppSettings(BaseModel):
     defaultGenerateProvider: str = ""
     defaultRepairProvider: str = ""
     defaultValidateProvider: str = ""
+    defaultTriggerEvalProvider: str = ""
+    defaultTaskEvalProvider: str = ""
     blockOnMissingConfig: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Empirical closed loops: trigger-description optimization and task A/B.
+# These run as optional post-finalize phases, persisted in their own tables,
+# not as generation states (see trigger_loop.py).
+# ---------------------------------------------------------------------------
+
+TriggerRunStatus = Literal[
+    "queued",
+    "measuring",
+    "rewriting",
+    "completed",
+    "failed",
+    "interrupted",
+]
+TriggerRunPhase = Literal[
+    "detecting_path",
+    "splitting_eval_set",
+    "measuring_trigger_rates",
+    "improving_description",
+    "writing_back",
+    "completed",
+    "failed",
+    "interrupted",
+]
+TriggerDetectionPath = Literal["cli", "judge"]
+TaskRunStatus = Literal[
+    "queued",
+    "running_with_skill",
+    "running_baseline",
+    "grading",
+    "completed",
+    "failed",
+    "interrupted",
+]
+
+
+class TriggerEvalQuery(BaseModel):
+    query: str
+    shouldTrigger: bool
+
+
+class TriggerEvalSet(BaseModel):
+    id: str
+    name: str
+    queries: list[TriggerEvalQuery] = Field(default_factory=list)
+    createdAt: int
+    updatedAt: int
+
+
+class TriggerQueryRate(BaseModel):
+    query: str
+    shouldTrigger: bool
+    triggerRate: float
+    triggers: int
+    runs: int
+    passed: bool
+
+
+class TriggerIteration(BaseModel):
+    index: int
+    description: str
+    trainPassed: int
+    trainTotal: int
+    testPassed: int | None = None
+    testTotal: int | None = None
+    perQueryRates: list[TriggerQueryRate] = Field(default_factory=list)
+
+
+class TriggerProvenance(BaseModel):
+    claudeBinaryPresent: bool = False
+    cliModel: str | None = None
+    tempProjectRoot: str = ""
+    iterationsRun: int = 0
+    exitReason: str = ""
+
+
+class TriggerOptimizationRun(BaseModel):
+    id: str
+    generationId: str
+    evalSetId: str
+    status: TriggerRunStatus = "queued"
+    currentIteration: int = 0
+    detectionPath: TriggerDetectionPath = "judge"
+    providerId: str = ""
+    providerModel: str = ""
+    iterations: list[TriggerIteration] = Field(default_factory=list)
+    originalDescription: str = ""
+    chosenDescription: str = ""
+    trainScore: str = ""
+    testScore: str | None = None
+    cancelRequested: bool = False
+    errorMessage: str = ""
+    writebackFailed: bool = False
+    writebackError: str = ""
+    provenance: TriggerProvenance = Field(default_factory=TriggerProvenance)
+    createdAt: int
+    completedAt: int | None = None
+
+
+class TriggerOptimizationCreateRequest(BaseModel):
+    evalSetId: str
+    maxIterations: int = 5
+    runsPerQuery: int = 3
+    triggerThreshold: float = 0.5
+    holdout: float = 0.4
+    queryTimeoutSec: int = 30
+
+
+class TriggerOptimizationEvent(BaseModel):
+    id: int
+    runId: str
+    phase: TriggerRunPhase
+    iteration: int = 0
+    message: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    createdAt: int
+
+
+class TriggerJudgeDecision(BaseModel):
+    """Judge proxy decision: would the agent read THIS skill for the query?
+
+    The judge is presented an available_skills list (this skill plus
+    distractors) and asked which, if any, it would consult first.
+    """
+
+    chosenSkillName: str | None = None
+    reasoning: str = ""
+
+
+class TriggerDescriptionProposal(BaseModel):
+    """Output of the description-improvement call: a single rewritten description."""
+
+    proposedDescription: str
+    rationale: str = ""
+
+
+TaskABConfigLabel = Literal["with_skill", "baseline"]
+TaskABVerdict = Literal["with_skill", "baseline", "tie"]
+
+
+class TaskABPrompt(BaseModel):
+    prompt: str
+
+
+class TaskABOutput(BaseModel):
+    config: TaskABConfigLabel
+    outputText: str
+    exitReason: str = ""
+    durationMs: int = 0
+
+
+class TaskABTaskVerdict(BaseModel):
+    prompt: str
+    betterConfig: TaskABVerdict = "tie"
+    reasoning: str = ""
+
+
+class TaskABVerdictModel(BaseModel):
+    """Structured output of the A/B grader call (one prompt at a time)."""
+
+    betterConfig: TaskABVerdict = "tie"
+    reasoning: str = ""
+
+
+class TaskABRun(BaseModel):
+    id: str
+    generationId: str
+    status: TaskRunStatus = "queued"
+    graderProviderId: str = ""
+    detectionPath: TriggerDetectionPath = "judge"
+    cliModel: str | None = None
+    prompts: list[TaskABPrompt] = Field(default_factory=list)
+    outputs: list[TaskABOutput] = Field(default_factory=list)
+    verdicts: list[TaskABTaskVerdict] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    cancelRequested: bool = False
+    errorMessage: str = ""
+    createdAt: int
+    completedAt: int | None = None
+
+
+class TaskABCreateRequest(BaseModel):
+    prompts: list[str]
+    runsPerPrompt: int = 1
+    queryTimeoutSec: int = 60
+
+
+class TaskABEvent(BaseModel):
+    id: int
+    runId: str
+    phase: str
+    message: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    createdAt: int
+
+
+# Provenance record for the backend invoking an external CLI binary to measure
+# triggering. The backend never shell-executed anything before this feature.
+class SubprocessInvocationRecord(BaseModel):
+    binary: str
+    binaryPresent: bool
+    model: str | None = None
+    detectionPath: TriggerDetectionPath
+    envNote: str = ""

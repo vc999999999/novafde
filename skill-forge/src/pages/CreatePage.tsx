@@ -11,15 +11,22 @@ import GenerationLoading from '../components/GenerationLoading';
 import QualityScorePanel from '../components/QualityScorePanel';
 import SupplementDialog from '../components/SupplementDialog';
 import SkillSpecPanel from '../components/SkillSpecPanel';
+import TriggerEvalSetManager from '../components/TriggerEvalSetManager';
 import {
   ApiError,
   cancelGeneration,
+  cancelTaskAb,
+  cancelTriggerOptimization,
   createDraft,
+  getTaskAb,
+  getTriggerOptimization,
   patchDraft,
   getGeneration,
   getGenerationSpec,
   installGeneration,
   startGeneration,
+  startTaskAb,
+  startTriggerOptimization,
   submitGenerationSupplement,
   toGenerationDownloadUrl,
 } from '../api';
@@ -31,12 +38,15 @@ import type {
   ModelConnectionStatus,
   SkillSpecResponse,
   SupplementAnswer,
+  TriggerOptimizationCreateRequest,
+  TriggerOptimizationRun,
+  TaskABRun,
 } from '../types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowRight, CircleAlert, CircleCheck, CircleX, Download, HardDriveDownload } from 'lucide-react';
+import { ArrowRight, CircleAlert, CircleCheck, CircleX, Download, FlaskConical, HardDriveDownload, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Phase = 'form' | 'generating' | 'result';
@@ -93,6 +103,17 @@ export default function CreatePage({
   const [prevResumeId, setPrevResumeId] = useState(resumeGenerationId);
   const generationSpecAvailable = generation?.skillSpecAvailable ?? false;
   const generationSpecRevision = generation?.skillSpecRevision ?? null;
+
+  // --- Empirical closed loops state ---
+  const [triggerPolling, setTriggerPolling] = useState(false);
+  const [taskAbPolling, setTaskAbPolling] = useState(false);
+  const [triggerCancelling, setTriggerCancelling] = useState(false);
+  const [taskAbCancelling, setTaskAbCancelling] = useState(false);
+  const [triggerRun, setTriggerRun] = useState<TriggerOptimizationRun | null>(null);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [taskAbRun, setTaskAbRun] = useState<TaskABRun | null>(null);
+  const [taskAbError, setTaskAbError] = useState<string | null>(null);
+  const [selectedEvalSetId, setSelectedEvalSetId] = useState('auto');
 
   // Adjust state during render when the resume target changes (React-recommended
   // alternative to syncing props into state inside an effect).
@@ -191,6 +212,91 @@ export default function CreatePage({
       if (timeout) window.clearTimeout(timeout);
     };
   }, [generationId, pollingEnabled]);
+
+  // ---- Trigger optimization polling ----
+  useEffect(() => {
+    if (!triggerRun?.id || !triggerPolling) return;
+    const isTerminal = triggerRun.status === 'completed'
+      || triggerRun.status === 'failed'
+      || triggerRun.status === 'interrupted';
+    if (isTerminal) {
+      setTriggerPolling(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timeout: number | undefined;
+
+    const poll = async () => {
+      try {
+        const current = await getTriggerOptimization(triggerRun.id);
+        if (cancelled) return;
+        setTriggerRun(current);
+        if (current.status === 'completed'
+          || current.status === 'failed'
+          || current.status === 'interrupted') {
+          setTriggerPolling(false);
+          if (current.status === 'completed' && generationId) {
+            getGeneration(generationId)
+              .then(setGeneration)
+              .catch((error) => setTriggerError(messageFromError(error)));
+          }
+          return;
+        }
+        timeout = window.setTimeout(poll, 2000);
+      } catch (error) {
+        if (cancelled) return;
+        setTriggerError(messageFromError(error));
+        setTriggerPolling(false);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, [triggerRun?.id, triggerPolling, generationId]);
+
+  // ---- Task A/B polling ----
+  useEffect(() => {
+    if (!taskAbRun?.id || !taskAbPolling) return;
+    const isTerminal = taskAbRun.status === 'completed'
+      || taskAbRun.status === 'failed'
+      || taskAbRun.status === 'interrupted';
+    if (isTerminal) {
+      setTaskAbPolling(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timeout: number | undefined;
+
+    const poll = async () => {
+      try {
+        const current = await getTaskAb(taskAbRun.id);
+        if (cancelled) return;
+        setTaskAbRun(current);
+        if (current.status === 'completed'
+          || current.status === 'failed'
+          || current.status === 'interrupted') {
+          setTaskAbPolling(false);
+          return;
+        }
+        timeout = window.setTimeout(poll, 2000);
+      } catch (error) {
+        if (cancelled) return;
+        setTaskAbError(messageFromError(error));
+        setTaskAbPolling(false);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, [taskAbRun?.id, taskAbPolling]);
 
   useEffect(() => {
     if (!generationId || !generationSpecAvailable) return;
@@ -332,6 +438,79 @@ export default function CreatePage({
       setIsInstalling(false);
     }
   }, [generation, isInstalling]);
+
+  // ---- Trigger optimization handlers ----
+  const handleStartTriggerOptimization = useCallback(async () => {
+    if (!generation || !generation.id || triggerPolling) return;
+    setTriggerError(null);
+    setTriggerRun(null);
+    setTriggerPolling(true);
+    try {
+      const saved = await startTriggerOptimization(generation.id, {
+        evalSetId: selectedEvalSetId,
+        maxIterations: 5,
+        runsPerQuery: 2,
+        triggerThreshold: 0.8,
+      } as TriggerOptimizationCreateRequest);
+      setTriggerRun(saved);
+    } catch (error) {
+      setTriggerError(messageFromError(error));
+      setTriggerPolling(false);
+    }
+  }, [generation, triggerPolling, selectedEvalSetId]);
+
+  const handleCancelTriggerOptimization = useCallback(async () => {
+    if (!triggerRun?.id || triggerCancelling) return;
+    setTriggerCancelling(true);
+    try {
+      const current = await cancelTriggerOptimization(triggerRun.id);
+      setTriggerRun(current);
+    } catch (error) {
+      setTriggerError(messageFromError(error));
+    } finally {
+      setTriggerCancelling(false);
+    }
+  }, [triggerRun, triggerCancelling]);
+
+  // ---- Task A/B handlers ----
+  const handleStartTaskAb = useCallback(async () => {
+    if (!generation || !generation.id || taskAbPolling) return;
+    setTaskAbError(null);
+    setTaskAbRun(null);
+    setTaskAbPolling(true);
+    try {
+      const prompts = [
+        draft.purpose.usage.trim(),
+        draft.purpose.desiredOutcome.trim(),
+      ].filter(Boolean);
+      if (prompts.length === 0) {
+        setTaskAbError('请先在表单中填写技能用途和目标结果。');
+        setTaskAbPolling(false);
+        return;
+      }
+      const run = await startTaskAb(generation.id, {
+        prompts,
+        runsPerPrompt: 2,
+      });
+      setTaskAbRun(run);
+    } catch (error) {
+      setTaskAbError(messageFromError(error));
+      setTaskAbPolling(false);
+    }
+  }, [generation, taskAbPolling, draft.purpose.usage, draft.purpose.desiredOutcome]);
+
+  const handleCancelTaskAb = useCallback(async () => {
+    if (!taskAbRun?.id || taskAbCancelling) return;
+    setTaskAbCancelling(true);
+    try {
+      const current = await cancelTaskAb(taskAbRun.id);
+      setTaskAbRun(current);
+    } catch (error) {
+      setTaskAbError(messageFromError(error));
+    } finally {
+      setTaskAbCancelling(false);
+    }
+  }, [taskAbRun, taskAbCancelling]);
 
   if (phase === 'form') {
     const stepKey = STEP_KEYS[currentStep];
@@ -633,6 +812,28 @@ export default function CreatePage({
             )}
             <Button variant="outline" onClick={handleBackToForm} type="button">返回编辑</Button>
             <Button variant="destructive" onClick={handleNewDraft} type="button">新建草稿</Button>
+            {downloadable && (
+              <>
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={handleStartTriggerOptimization}
+                  disabled={triggerPolling}
+                >
+                  <Sparkles className="size-4" />
+                  {triggerPolling ? '优化中…' : '优化触发描述'}
+                </Button>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleStartTaskAb}
+                  disabled={taskAbPolling}
+                >
+                  <FlaskConical className="size-4" />
+                  {taskAbPolling ? '评测中…' : '基线对照评测'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </Card>
@@ -661,6 +862,17 @@ export default function CreatePage({
         <Alert className="animate-step-in mb-3 border-warning-border bg-warning-dim text-warning">
           <AlertDescription>{generation.errorMessage}</AlertDescription>
         </Alert>
+      )}
+
+      {/* 实证闭环：评测集 + 触发优化 / 基线对照 */}
+      {downloadable && generation?.id && (
+        <Card className="animate-step-in mb-3 border-panel-border bg-panel p-5 shadow-md">
+          <TriggerEvalSetManager
+            selectedId={selectedEvalSetId}
+            generationId={generation.id}
+            onSelectId={setSelectedEvalSetId}
+          />
+        </Card>
       )}
 
       {/* 重要信息优先：质量评分 / 生成统计 / 生成规格在前，文件产物在后 */}
@@ -742,16 +954,268 @@ export default function CreatePage({
                     : <p className="py-8 text-center text-sm text-muted-foreground">暂无校验结果</p>}
                 </TabsContent>
               </Tabs>
-            </Card>
-          ) : (
-            !(skillSpec || skillSpecError) && (
-              <Card className="border-panel-border bg-panel p-5 shadow-md">
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  本次任务没有产出可预览的内容
-                </p>
               </Card>
-            )
-          )}
+              ) : (
+                !(skillSpec || skillSpecError) && (
+                  <Card className="border-panel-border bg-panel p-5 shadow-md">
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      本次任务没有产出可预览的内容
+                    </p>
+                  </Card>
+                )
+              )}
+
+              {/* Trigger optimization panel */}
+              {(triggerRun || triggerError) && (
+                <Card className="animate-step-in border-panel-border bg-panel p-5 shadow-md">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-[12px] uppercase tracking-[0.18em] text-muted-foreground">
+                      触发描述优化
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {triggerRun?.detectionPath && (
+                        <span className="rounded-full border border-black/10 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          {triggerRun.detectionPath === 'cli' ? 'CLI 真测' : 'Judge 代理'}
+                        </span>
+                      )}
+                      {triggerRun?.provenance?.claudeBinaryPresent === false && (
+                        <span className="rounded-full border border-warning-border px-2 py-0.5 text-[10px] text-warning">
+                          CLI 不可用，已降级
+                        </span>
+                      )}
+                      {triggerRun && !triggerPolling && triggerRun.status === 'completed' && (
+                        <span className="rounded-full border border-success-border bg-success-dim px-2 py-0.5 text-[10px] text-success">
+                          已完成
+                        </span>
+                      )}
+                      {triggerRun && triggerPolling && (
+                        <span className="rounded-full border border-accent-border bg-accent-dim px-2 py-0.5 text-[10px] animate-[saving-pulse_1s_ease-in-out_infinite]">
+                          进行中…
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {triggerError && (
+                    <Alert className="mb-3 border-warning-border bg-warning-dim text-warning">
+                      <AlertDescription>{triggerError}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {triggerRun && (
+                    <>
+                      {triggerRun.status === 'completed' && triggerRun.chosenDescription && (
+                        <div className="mb-3">
+                          <p className="mb-1 text-xs text-muted-foreground">优化后的描述</p>
+                          <pre className="whitespace-pre-wrap rounded-[var(--radius-sm)] border border-black/6 bg-[#060608] p-3 font-mono text-xs leading-[1.7] text-[#f5f5f5]">
+                            {triggerRun.chosenDescription}
+                          </pre>
+                        </div>
+                      )}
+
+                      {triggerRun.originalDescription !== triggerRun.chosenDescription && (
+                        <div className="mb-3">
+                          <p className="mb-1 text-xs text-muted-foreground">原始描述</p>
+                          <pre className="whitespace-pre-wrap rounded-[var(--radius-sm)] border border-black/6 bg-[#060608] p-3 font-mono text-xs leading-[1.7] text-[#e0e0e0] line-through opacity-70">
+                            {triggerRun.originalDescription}
+                          </pre>
+                        </div>
+                      )}
+
+                      <div className="mb-3 grid grid-cols-3 gap-3 text-center">
+                        <div>
+                          <span className="font-mono text-lg font-semibold">
+                            {triggerRun.trainScore}
+                          </span>
+                          <p className="text-[10px] tracking-[0.16em] text-tertiary">训练集</p>
+                        </div>
+                        <div>
+                          <span className="font-mono text-lg font-semibold">
+                            {triggerRun.testScore ?? '—'}
+                          </span>
+                          <p className="text-[10px] tracking-[0.16em] text-tertiary">留出集</p>
+                        </div>
+                        <div>
+                          <span className="font-mono text-lg font-semibold">
+                            {triggerRun.iterations.length}
+                          </span>
+                          <p className="text-[10px] tracking-[0.16em] text-tertiary">迭代轮数</p>
+                        </div>
+                      </div>
+
+                      {triggerRun.iterations.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground">逐轮改进</p>
+                          {triggerRun.iterations.map((iter) => (
+                            <div
+                              key={iter.index}
+                              className="flex items-center justify-between rounded-[var(--radius-sm)] border border-black/6 bg-surface px-3 py-2 text-xs"
+                            >
+                              <span className="text-muted-foreground">第 {iter.index + 1} 轮</span>
+                              <span
+                                className={cn(
+                                  'font-mono',
+                                  iter.trainPassed >= iter.trainTotal
+                                    ? 'text-success'
+                                    : 'text-warning',
+                                )}
+                              >
+                                {iter.trainPassed}/{iter.trainTotal} 训练
+                              </span>
+                              <span className="text-muted-foreground">
+                                {iter.testPassed != null ? `${iter.testPassed}/${iter.testTotal} 验证` : '—'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {triggerRun.status === 'completed' && triggerRun.writebackFailed && (
+                        <Alert className="mt-3 border-warning-border bg-warning-dim text-warning">
+                          <AlertDescription>
+                            优化已完成，但写回最终包失败：{triggerRun.writebackError || triggerRun.errorMessage}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {triggerRun.status === 'completed' && !triggerPolling && !triggerRun.writebackFailed
+                        && triggerRun.chosenDescription !== triggerRun.originalDescription && (
+                        <div className="mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            onClick={() => window.location.assign(toGenerationDownloadUrl(triggerRun.generationId))}
+                          >
+                            <Download className="size-3.5" />
+                            下载更新后的 Skill
+                          </Button>
+                        </div>
+                      )}
+
+                      {(triggerRun.status === 'queued'
+                        || triggerRun.status === 'measuring'
+                        || triggerRun.status === 'rewriting') && (
+                        <div className="mt-3">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            type="button"
+                            disabled={triggerCancelling}
+                            onClick={handleCancelTriggerOptimization}
+                          >
+                            {triggerCancelling ? '取消中…' : '取消优化'}
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {triggerRun?.status === 'failed' && triggerRun.errorMessage && (
+                    <Alert className="mt-3 border-warning-border bg-warning-dim text-warning">
+                      <AlertDescription>{triggerRun.errorMessage}</AlertDescription>
+                    </Alert>
+                  )}
+                </Card>
+              )}
+
+              {/* Task A/B panel */}
+              {(taskAbRun || taskAbError) && (
+                <Card className="animate-step-in border-panel-border bg-panel p-5 shadow-md">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-[12px] uppercase tracking-[0.18em] text-muted-foreground">
+                      基线对照评测
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {taskAbRun?.detectionPath && (
+                        <span className="rounded-full border border-black/10 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          执行：{taskAbRun.detectionPath === 'cli' ? 'CLI 真跑' : 'LLM 代理'}
+                        </span>
+                      )}
+                      <span className="rounded-full border border-black/10 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        评分：Judge
+                      </span>
+                      {taskAbRun && !taskAbPolling && taskAbRun.status === 'completed' && (
+                        <span className="rounded-full border border-success-border bg-success-dim px-2 py-0.5 text-[10px] text-success">
+                          已完成
+                        </span>
+                      )}
+                      {taskAbRun && taskAbPolling && (
+                        <span className="rounded-full border border-accent-border bg-accent-dim px-2 py-0.5 text-[10px] animate-[saving-pulse_1s_ease-in-out_infinite]">
+                          评测中…
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {taskAbError && (
+                    <Alert className="mb-3 border-warning-border bg-warning-dim text-warning">
+                      <AlertDescription>{taskAbError}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {taskAbRun && taskAbRun.verdicts.length > 0 && (
+                    <div className="mb-3 flex flex-col gap-2">
+                      {taskAbRun.verdicts.map((v, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-3 rounded-[var(--radius-sm)] border border-black/6 bg-surface px-3 py-2 text-xs"
+                        >
+                          <span
+                            className={cn(
+                              'mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[10px]',
+                              v.betterConfig === 'with_skill' && 'border-success-border bg-success-dim text-success',
+                              v.betterConfig === 'baseline' && 'border-warning-border bg-warning-dim text-warning',
+                              v.betterConfig === 'tie' && 'border-black/10 bg-black/5 text-muted-foreground',
+                            )}
+                          >
+                            {v.betterConfig === 'with_skill' ? 'Skill 胜' : v.betterConfig === 'baseline' ? '基线胜' : '平局'}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="mb-0.5 truncate text-muted-foreground">
+                              {typeof v.prompt === 'string' ? v.prompt : JSON.stringify(v.prompt)}
+                            </p>
+                            <p className="line-clamp-2 text-[11px] text-muted-foreground">
+                              {v.reasoning}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(taskAbRun && (taskAbRun.status === 'queued'
+                    || taskAbRun.status === 'running_with_skill'
+                    || taskAbRun.status === 'running_baseline'
+                    || taskAbRun.status === 'grading')) && (
+                    <div className="mt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        disabled={taskAbCancelling}
+                        onClick={handleCancelTaskAb}
+                      >
+                        {taskAbCancelling ? '取消中…' : '取消评测'}
+                      </Button>
+                    </div>
+                  )}
+
+                  {taskAbRun?.status === 'completed' && !taskAbPolling && (
+                    <div className="mt-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => window.location.assign(toGenerationDownloadUrl(taskAbRun.generationId))}
+                      >
+                        <Download className="size-3.5" />
+                        查看对应的 Skill
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+              )}
         </div>
       </div>
     </div>

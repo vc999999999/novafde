@@ -301,7 +301,9 @@ export type ProviderRole =
   | 'repair'
   | 'activation-evaluation'
   | 'implementation-evaluation'
-  | 'validation-explanation';
+  | 'validation-explanation'
+  | 'trigger-evaluation'
+  | 'task-evaluation';
 
 export type ProviderTestStatus = 'passed' | 'failed';
 
@@ -414,7 +416,7 @@ export interface DiagnosticMetrics {
   supplementPromptRate: number;
   supplementSkipRate: number;
   criterionAverageScores: Record<string, number>;
-  issueFrequency: ErrorPattern[];
+  issueFrequency: Array<{ criterion: string; title: string; description: string; occurrenceCount: number }>;
   models: Record<string, {
     calls: number;
     inputTokens: number;
@@ -424,6 +426,23 @@ export interface DiagnosticMetrics {
     strictPassRate: number;
   }>;
   alerts: string[];
+  triggerOptimization: {
+    runCount: number;
+    completedCount: number;
+    cliDetectionCount: number;
+    judgeDetectionCount: number;
+    averageTrainScore: number;
+    averageTestScore: number | null;
+  };
+  taskAB: {
+    runCount: number;
+    completedCount: number;
+    total: number;
+    withSkillWins: number;
+    baselineWins: number;
+    ties: number;
+    withSkillWinRate: number;
+  };
 }
 
 // --- App settings ---
@@ -432,6 +451,8 @@ export interface AppSettings {
   defaultGenerateProvider: string;
   defaultRepairProvider: string;
   defaultValidateProvider: string;
+  defaultTriggerEvalProvider: string;
+  defaultTaskEvalProvider: string;
   blockOnMissingConfig: boolean;
 }
 
@@ -540,3 +561,214 @@ export interface SupplementAnswer {
 // --- Page type ---
 
 export type Page = 'create' | 'history' | 'rules' | 'settings' | 'local';
+
+// --- Empirical closed loops: trigger optimization and Task A/B ---
+
+export type TriggerRunStatus =
+  | 'queued'
+  | 'measuring'
+  | 'rewriting'
+  | 'completed'
+  | 'failed'
+  | 'interrupted';
+
+export type TriggerDetectionPath = 'cli' | 'judge';
+
+export interface TriggerEvalQuery {
+  query: string;
+  shouldTrigger: boolean;
+}
+
+export interface TriggerEvalSet {
+  id: string;
+  name: string;
+  queries: TriggerEvalQuery[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TriggerQueryRate {
+  query: string;
+  shouldTrigger: boolean;
+  triggerRate: number;
+  triggers: number;
+  runs: number;
+  passed: boolean;
+}
+
+export interface TriggerIteration {
+  index: number;
+  description: string;
+  trainPassed: number;
+  trainTotal: number;
+  testPassed: number | null;
+  testTotal: number | null;
+  perQueryRates: TriggerQueryRate[];
+}
+
+export interface TriggerProvenance {
+  claudeBinaryPresent: boolean;
+  cliModel: string | null;
+  tempProjectRoot: string;
+  iterationsRun: number;
+  exitReason: string;
+}
+
+export interface TriggerOptimizationRun {
+  id: string;
+  generationId: string;
+  evalSetId: string;
+  status: TriggerRunStatus;
+  currentIteration: number;
+  detectionPath: TriggerDetectionPath;
+  providerId: string;
+  providerModel: string;
+  iterations: TriggerIteration[];
+  originalDescription: string;
+  chosenDescription: string;
+  trainScore: string;
+  testScore: string | null;
+  cancelRequested: boolean;
+  errorMessage: string;
+  writebackFailed: boolean;
+  writebackError: string;
+  provenance: TriggerProvenance;
+  createdAt: number;
+  completedAt: number | null;
+}
+
+export interface TriggerOptimizationCreateRequest {
+  evalSetId: string;
+  maxIterations?: number;
+  runsPerQuery?: number;
+  triggerThreshold?: number;
+  holdout?: number;
+  queryTimeoutSec?: number;
+}
+
+export interface TriggerOptimizationEvent {
+  id: number;
+  runId: string;
+  phase: string;
+  iteration: number;
+  message: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
+
+// --- Task A/B ---
+
+export type TaskRunStatus =
+  | 'queued'
+  | 'running_with_skill'
+  | 'running_baseline'
+  | 'grading'
+  | 'completed'
+  | 'failed'
+  | 'interrupted';
+
+export type TaskABVerdict = 'with_skill' | 'baseline' | 'tie';
+
+export interface TaskABPrompt {
+  prompt: string;
+}
+
+export interface TaskABOutput {
+  config: 'with_skill' | 'baseline';
+  outputText: string;
+  exitReason: string;
+  durationMs: number;
+}
+
+export interface TaskABTaskVerdict {
+  prompt: string;
+  betterConfig: TaskABVerdict;
+  reasoning: string;
+}
+
+export interface TaskABRun {
+  id: string;
+  generationId: string;
+  status: TaskRunStatus;
+  graderProviderId: string;
+  detectionPath: TriggerDetectionPath;
+  cliModel: string | null;
+  prompts: TaskABPrompt[];
+  outputs: TaskABOutput[];
+  verdicts: TaskABTaskVerdict[];
+  summary: Record<string, unknown>;
+  cancelRequested: boolean;
+  errorMessage: string;
+  createdAt: number;
+  completedAt: number | null;
+}
+
+export interface TaskABCreateRequest {
+  prompts: string[];
+  runsPerPrompt?: number;
+  queryTimeoutSec?: number;
+}
+
+export interface TaskABEvent {
+  id: number;
+  runId: string;
+  phase: string;
+  message: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface TaskABSummary {
+  total: number;
+  withSkillWins: number;
+  baselineWins: number;
+  ties: number;
+  withSkillWinRate: number;
+}
+
+// --- Diagnostics extensions ---
+
+export interface TriggerOptimizationDiagnostics {
+  runCount: number;
+  completedCount: number;
+  cliDetectionCount: number;
+  judgeDetectionCount: number;
+  averageTrainScore: number;
+  averageTestScore: number | null;
+}
+
+export interface TaskABDiagnostics {
+  runCount: number;
+  completedCount: number;
+  total: number;
+  withSkillWins: number;
+  baselineWins: number;
+  ties: number;
+  withSkillWinRate: number;
+}
+
+export interface DiagnosticsMetrics {
+  runCount: number;
+  firstRoundStrictPassRate: number;
+  finalStrictPassRate: number;
+  degradedDeliveryRate: number;
+  technicalFailureRate: number;
+  averageRepairRounds: number;
+  averageScoreImprovement: number;
+  scoreRegressionRate: number;
+  supplementPromptRate: number;
+  supplementSkipRate: number;
+  criterionAverageScores: Record<string, number>;
+  issueFrequency: Array<{ criterion: string; title: string; description: string; occurrenceCount: number }>;
+  models: Record<string, {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUsd: number;
+    p95LatencyMs: number;
+    strictPassRate: number;
+  }>;
+  alerts: string[];
+  triggerOptimization: TriggerOptimizationDiagnostics;
+  taskAB: TaskABDiagnostics;
+}

@@ -16,6 +16,14 @@ import type {
   SkillDraft,
   SkillSpecResponse,
   SupplementAnswer,
+  TaskABCreateRequest,
+  TaskABEvent,
+  TaskABRun,
+  TriggerEvalQuery,
+  TriggerEvalSet,
+  TriggerOptimizationCreateRequest,
+  TriggerOptimizationEvent,
+  TriggerOptimizationRun,
 } from './types';
 
 export class ApiError extends Error {
@@ -238,4 +246,86 @@ export function saveSettings(settings: AppSettings) {
     method: 'PUT',
     body: JSON.stringify(settings),
   });
+}
+
+// ---- Trigger eval sets ------------------------------------------------
+
+export function createTriggerEvalSet(name: string, queries: TriggerEvalQuery[]) {
+  return apiRequest<TriggerEvalSet>('/api/trigger-eval-sets', {
+    method: 'POST',
+    body: JSON.stringify({ name, queries }),
+  });
+}
+
+export function listTriggerEvalSets() {
+  return apiRequest<TriggerEvalSet[]>('/api/trigger-eval-sets');
+}
+
+export function getTriggerEvalSet(evalSetId: string) {
+  return apiRequest<TriggerEvalSet>(`/api/trigger-eval-sets/${encodeURIComponent(evalSetId)}`);
+}
+
+export function updateTriggerEvalSet(
+  evalSetId: string,
+  payload: { name: string; queries: TriggerEvalQuery[] },
+) {
+  return apiRequest<TriggerEvalSet>(`/api/trigger-eval-sets/${encodeURIComponent(evalSetId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteTriggerEvalSet(evalSetId: string) {
+  return apiRequest<void>(`/api/trigger-eval-sets/${encodeURIComponent(evalSetId)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---- Trigger optimization runs -----------------------------------------
+
+export function startTriggerOptimization(
+  generationId: string,
+  payload: TriggerOptimizationCreateRequest,
+) {
+  return apiRequest<TriggerOptimizationRun>(`/api/generations/${encodeURIComponent(generationId)}/trigger-optimization`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTriggerOptimization(runId: string) {
+  return apiRequest<TriggerOptimizationRun>(`/api/trigger-optimizations/${encodeURIComponent(runId)}`);
+}
+
+export function cancelTriggerOptimization(runId: string) {
+  return apiRequest<TriggerOptimizationRun>(`/api/trigger-optimizations/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function triggerOptimizationEvents(runId: string) {
+  return apiRequest<TriggerOptimizationEvent[]>(`/api/trigger-optimizations/${encodeURIComponent(runId)}/events`);
+}
+
+// ---- Task A/B ---------------------------------------------------------
+
+export function startTaskAb(generationId: string, payload: TaskABCreateRequest) {
+  return apiRequest<TaskABRun>(`/api/generations/${encodeURIComponent(generationId)}/task-ab`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTaskAb(runId: string) {
+  return apiRequest<TaskABRun>(`/api/task-ab/${encodeURIComponent(runId)}`);
+}
+
+export function cancelTaskAb(runId: string) {
+  return apiRequest<TaskABRun>(`/api/task-ab/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function taskAbEvents(runId: string) {
+  return apiRequest<TaskABEvent[]>(`/api/task-ab/${encodeURIComponent(runId)}/events`);
 }

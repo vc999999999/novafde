@@ -20,6 +20,12 @@ from app.models import (
     ProviderTestResult,
     SkillDraft,
     SupplementRequest,
+    TaskABCreateRequest,
+    TaskABRun,
+    TriggerEvalQuery,
+    TriggerEvalSet,
+    TriggerOptimizationCreateRequest,
+    TriggerOptimizationRun,
 )
 from app.agent import SkillAgentRuntime
 from app.service import (
@@ -346,6 +352,154 @@ def create_app(
     @app.put("/api/settings", response_model=AppSettings)
     def save_settings(payload: AppSettings) -> AppSettings:
         return service.save_settings(payload)
+
+    # ---- Trigger eval sets ------------------------------------------------
+
+    @app.post("/api/trigger-eval-sets", response_model=TriggerEvalSet, status_code=201)
+    def create_trigger_eval_set(payload: dict[str, Any]) -> TriggerEvalSet:
+        name = str(payload.get("name", "")).strip()
+        queries_payload = payload.get("queries") or []
+        queries = [
+            TriggerEvalQuery(query=str(q.get("query", "")), shouldTrigger=bool(q.get("shouldTrigger")))
+            for q in queries_payload
+            if q.get("query")
+        ]
+        return service.create_trigger_eval_set(name=name or "unnamed", queries=queries)
+
+    @app.get("/api/trigger-eval-sets", response_model=list[TriggerEvalSet])
+    def list_trigger_eval_sets() -> list[TriggerEvalSet]:
+        return service.list_trigger_eval_sets()
+
+    @app.get("/api/trigger-eval-sets/{eval_set_id}", response_model=TriggerEvalSet)
+    def get_trigger_eval_set(eval_set_id: str) -> TriggerEvalSet:
+        result = service.get_trigger_eval_set(eval_set_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Eval set not found")
+        return result
+
+    @app.put("/api/trigger-eval-sets/{eval_set_id}", response_model=TriggerEvalSet)
+    def update_trigger_eval_set(eval_set_id: str, payload: dict[str, Any]) -> TriggerEvalSet:
+        name = str(payload.get("name", "")).strip()
+        queries_payload = payload.get("queries") or []
+        queries = [
+            TriggerEvalQuery(query=str(q.get("query", "")), shouldTrigger=bool(q.get("shouldTrigger")))
+            for q in queries_payload
+            if q.get("query")
+        ]
+        result = service.update_trigger_eval_set(eval_set_id, name=name, queries=queries)
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Eval set not found or needs at least 2 queries",
+            )
+        return result
+
+    @app.delete("/api/trigger-eval-sets/{eval_set_id}", status_code=204)
+    def delete_trigger_eval_set(eval_set_id: str) -> None:
+        if not service.delete_trigger_eval_set(eval_set_id):
+            raise HTTPException(status_code=404, detail="Eval set not found")
+
+    # ---- Trigger optimization runs -----------------------------------------
+
+    @app.post(
+        "/api/generations/{generation_id}/trigger-optimization",
+        response_model=TriggerOptimizationRun,
+        status_code=201,
+    )
+    def start_trigger_optimization(
+        generation_id: str,
+        payload: TriggerOptimizationCreateRequest,
+    ) -> TriggerOptimizationRun:
+        if not service.model_is_connected():
+            raise HTTPException(
+                status_code=409,
+                detail="Model Provider is not connected and tested",
+            )
+        run = service.start_trigger_optimization(
+            generation_id,
+            eval_set_id=payload.evalSetId,
+            max_iterations=payload.maxIterations,
+            runs_per_query=payload.runsPerQuery,
+            trigger_threshold=payload.triggerThreshold,
+            holdout=payload.holdout,
+            query_timeout_sec=payload.queryTimeoutSec,
+        )
+        if run is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Generation is not finalized, eval set is missing, or auto eval set "
+                    "could not be built (draft needs usage/outcome with at least 2 queries)"
+                ),
+            )
+        return run
+
+    @app.get("/api/trigger-optimizations/{run_id}", response_model=TriggerOptimizationRun)
+    def get_trigger_optimization(run_id: str) -> TriggerOptimizationRun:
+        run = service.get_trigger_optimization(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
+    @app.post("/api/trigger-optimizations/{run_id}/cancel", response_model=TriggerOptimizationRun)
+    def cancel_trigger_optimization(run_id: str) -> TriggerOptimizationRun:
+        run = service.cancel_trigger_optimization(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
+    @app.get("/api/trigger-optimizations/{run_id}/events")
+    def trigger_optimization_events(run_id: str) -> list[dict[str, Any]]:
+        events = service.trigger_run_events(run_id)
+        if events is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return events
+
+    # ---- Task A/B ---------------------------------------------------------
+
+    @app.post("/api/generations/{generation_id}/task-ab", response_model=TaskABRun, status_code=201)
+    def start_task_ab(
+        generation_id: str,
+        payload: TaskABCreateRequest,
+    ) -> TaskABRun:
+        if not service.model_is_connected():
+            raise HTTPException(
+                status_code=409,
+                detail="Model Provider is not connected and tested",
+            )
+        run = service.start_task_ab(
+            generation_id,
+            prompts=payload.prompts,
+            runs_per_prompt=payload.runsPerPrompt,
+            query_timeout_sec=payload.queryTimeoutSec,
+        )
+        if run is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Generation is not finalized",
+            )
+        return run
+
+    @app.get("/api/task-ab/{run_id}", response_model=TaskABRun)
+    def get_task_ab(run_id: str) -> TaskABRun:
+        run = service.get_task_ab_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
+    @app.post("/api/task-ab/{run_id}/cancel", response_model=TaskABRun)
+    def cancel_task_ab(run_id: str) -> TaskABRun:
+        run = service.cancel_task_ab(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
+    @app.get("/api/task-ab/{run_id}/events")
+    def task_ab_events(run_id: str) -> list[dict[str, Any]]:
+        events = service.task_ab_run_events(run_id)
+        if events is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return events
 
     return app
 
