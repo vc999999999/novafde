@@ -13,6 +13,9 @@ from app.models import (
     QualityEvaluationReport,
     QualityIssue,
     SkillDraft,
+    TaskABRun,
+    TriggerEvalSet,
+    TriggerOptimizationRun,
     UserSupplement,
 )
 from app.utils import now_ms
@@ -132,6 +135,98 @@ class Storage:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trigger_eval_sets (
+                  id TEXT PRIMARY KEY,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trigger_optimizations (
+                  id TEXT PRIMARY KEY,
+                  generation_id TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  FOREIGN KEY(generation_id) REFERENCES generations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trigger_run_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  run_id TEXT NOT NULL,
+                  phase TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(run_id) REFERENCES trigger_optimizations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_ab_runs (
+                  id TEXT PRIMARY KEY,
+                  generation_id TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  FOREIGN KEY(generation_id) REFERENCES generations(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_ab_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  run_id TEXT NOT NULL,
+                  phase TEXT NOT NULL,
+                  payload TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(run_id) REFERENCES task_ab_runs(id)
+                )
+                """
+            )
+
+    def recover_interrupted_trigger_runs(self) -> int:
+        """Mark non-terminal trigger/task runs as interrupted on startup.
+
+        Kept separate from recover_interrupted_generations so an interrupted
+        empirical loop never collides with generation diagnostics or the
+        generation state machine.
+        """
+        terminal = {"completed", "failed", "interrupted"}
+        counter = 0
+        for table, model_cls in (
+            ("trigger_optimizations", TriggerOptimizationRun),
+            ("task_ab_runs", TaskABRun),
+        ):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    f"SELECT id, payload FROM {table}"  # noqa: S608 - static table name
+                ).fetchall()
+                for row in rows:
+                    record = model_cls.model_validate(json.loads(row["payload"]))
+                    if record.status in terminal:
+                        continue
+                    record.status = "interrupted"
+                    record.errorMessage = record.errorMessage or "本地应用在此运行完成前关闭，已标记为中断。"
+                    record.completedAt = now_ms()
+                    payload = json.dumps(record.model_dump(mode="json"), ensure_ascii=False)
+                    connection.execute(
+                        f"UPDATE {table} SET payload = ?, updated_at = ? WHERE id = ?",  # noqa: S608
+                        (payload, record.completedAt, record.id),
+                    )
+                    counter += 1
+        return counter
 
     def create_generation_shell(
         self,
@@ -545,6 +640,191 @@ class Storage:
                 """,
                 (key, value),
             )
+
+    # ---- Trigger eval sets ------------------------------------------------
+
+    def save_trigger_eval_set(self, eval_set: TriggerEvalSet) -> TriggerEvalSet:
+        payload = json.dumps(eval_set.model_dump(mode="json"), ensure_ascii=False)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO trigger_eval_sets (id, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  payload = excluded.payload,
+                  updated_at = excluded.updated_at
+                """,
+                (eval_set.id, payload, eval_set.createdAt, eval_set.updatedAt),
+            )
+        return eval_set
+
+    def get_trigger_eval_set(self, eval_set_id: str) -> TriggerEvalSet | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM trigger_eval_sets WHERE id = ?",
+                (eval_set_id,),
+            ).fetchone()
+        return TriggerEvalSet.model_validate(json.loads(row["payload"])) if row else None
+
+    def list_trigger_eval_sets(self) -> list[TriggerEvalSet]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM trigger_eval_sets ORDER BY updated_at DESC"
+            ).fetchall()
+        return [TriggerEvalSet.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def delete_trigger_eval_set(self, eval_set_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM trigger_eval_sets WHERE id = ?",
+                (eval_set_id,),
+            )
+        return cursor.rowcount > 0
+
+    # ---- Trigger optimization runs ----------------------------------------
+
+    def save_trigger_optimization(self, run: TriggerOptimizationRun) -> TriggerOptimizationRun:
+        payload = json.dumps(run.model_dump(mode="json"), ensure_ascii=False)
+        updated_at = run.completedAt if run.completedAt is not None else run.createdAt
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO trigger_optimizations
+                  (id, generation_id, status, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  status = excluded.status,
+                  payload = excluded.payload,
+                  updated_at = excluded.updated_at
+                """,
+                (run.id, run.generationId, run.status, payload, run.createdAt, updated_at),
+            )
+        return run
+
+    def get_trigger_optimization(self, run_id: str) -> TriggerOptimizationRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM trigger_optimizations WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return TriggerOptimizationRun.model_validate(json.loads(row["payload"])) if row else None
+
+    def list_trigger_optimizations_for_generation(
+        self, generation_id: str
+    ) -> list[TriggerOptimizationRun]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM trigger_optimizations WHERE generation_id = ? ORDER BY created_at DESC",
+                (generation_id,),
+            ).fetchall()
+        return [TriggerOptimizationRun.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def add_trigger_run_event(
+        self,
+        run_id: str,
+        phase: str,
+        payload: dict,
+        created_at: int,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO trigger_run_events (run_id, phase, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (run_id, phase, json.dumps(payload, ensure_ascii=False), created_at),
+            )
+
+    def list_trigger_run_events(self, run_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT phase, payload, created_at
+                FROM trigger_run_events
+                WHERE run_id = ?
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [
+            {
+                "phase": row["phase"],
+                "payload": json.loads(row["payload"]),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    # ---- Task A/B runs ----------------------------------------------------
+
+    def save_task_ab_run(self, run: TaskABRun) -> TaskABRun:
+        payload = json.dumps(run.model_dump(mode="json"), ensure_ascii=False)
+        updated_at = run.completedAt if run.completedAt is not None else run.createdAt
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO task_ab_runs (id, generation_id, status, payload, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  status = excluded.status,
+                  payload = excluded.payload,
+                  updated_at = excluded.updated_at
+                """,
+                (run.id, run.generationId, run.status, payload, run.createdAt, updated_at),
+            )
+        return run
+
+    def get_task_ab_run(self, run_id: str) -> TaskABRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM task_ab_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return TaskABRun.model_validate(json.loads(row["payload"])) if row else None
+
+    def list_task_ab_runs_for_generation(self, generation_id: str) -> list[TaskABRun]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM task_ab_runs WHERE generation_id = ? ORDER BY created_at DESC",
+                (generation_id,),
+            ).fetchall()
+        return [TaskABRun.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def add_task_ab_event(
+        self,
+        run_id: str,
+        phase: str,
+        payload: dict,
+        created_at: int,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO task_ab_events (run_id, phase, payload, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (run_id, phase, json.dumps(payload, ensure_ascii=False), created_at),
+            )
+
+    def list_task_ab_events(self, run_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT phase, payload, created_at
+                FROM task_ab_events
+                WHERE run_id = ?
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [
+            {
+                "phase": row["phase"],
+                "payload": json.loads(row["payload"]),
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
 
 
 def _migrate_draft_payload(payload: dict) -> dict:

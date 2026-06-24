@@ -30,6 +30,7 @@ def write_manifest(
     skill_spec: SkillSpec | None = None,
     skill_spec_sha256: str | None = None,
     package_root: Path | None = None,
+    description_optimization: dict | None = None,
 ) -> Path:
     package_root = package_root or output_root
     creator = load_creator_skill()
@@ -71,6 +72,21 @@ def write_manifest(
                 "selectionReason": selection_reason,
             }
             if quality_report
+            else None
+        ),
+        "descriptionOptimization": (
+            {
+                "originalDescription": description_optimization.get("originalDescription"),
+                "chosenDescription": description_optimization.get("chosenDescription"),
+                "detectionPath": description_optimization.get("detectionPath"),
+                "iterationsRun": description_optimization.get("iterationsRun"),
+                "trainScore": description_optimization.get("trainScore"),
+                "testScore": description_optimization.get("testScore"),
+                "exitReason": description_optimization.get("exitReason"),
+                "claudeBinaryPresent": description_optimization.get("claudeBinaryPresent"),
+                "runId": description_optimization.get("runId"),
+            }
+            if description_optimization
             else None
         ),
     }

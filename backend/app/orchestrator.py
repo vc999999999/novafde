@@ -1000,6 +1000,123 @@ class QualityOrchestrator:
         )
         return self.storage.save_generation(generation)
 
+    def read_final_skill_md(self, generation_id: str) -> str | None:
+        """Return the finalized package's SKILL.md text (or None if absent)."""
+        generation = self.storage.get_generation(generation_id)
+        if generation is None or generation.status not in {"succeeded", "degraded"}:
+            return None
+        final_root = self.settings.artifact_root / generation.id / "final" / "package"
+        if not final_root.exists():
+            return None
+        # find SKILL.md under the single skill directory
+        for child in final_root.iterdir():
+            skill_md = child / "SKILL.md"
+            if skill_md.exists():
+                return skill_md.read_text(encoding="utf-8")
+        return None
+
+    def apply_optimized_description(
+        self,
+        generation_id: str,
+        new_description: str,
+        *,
+        optimization_provenance: dict[str, Any] | None = None,
+    ) -> GenerationResult:
+        """Write an optimized description back into the finalized package.
+
+        This is the only sanctioned way to modify a finalized package post-hoc
+        and MUST preserve the five invariants (see plan):
+
+        1. re-run evaluate_validation on the rewritten package (gate it);
+        2. re-create the zip and update generation.artifactSha256;
+        3. re-build downloadInfo (size/fileCount) and update generation.downloadInfo;
+        4. re-write the manifest and record the optimization in a dedicated
+           provenance section (never fake-bump rendererVersion);
+        5. edit only an IR copy; never write the mutated IR back into the attempt.
+        """
+        generation = self.storage.get_generation(generation_id)
+        if generation is None or generation.status not in {"succeeded", "degraded"}:
+            raise ValueError("只有已完成的生成可以写回优化描述。")
+        if not generation.finalAttemptId:
+            raise ValueError("找不到最终候选尝试记录。")
+        attempts = {a.id: a for a in self.storage.list_attempts(generation_id)}
+        attempt = attempts.get(generation.finalAttemptId)
+        if attempt is None:
+            raise ValueError("找不到最终候选尝试记录。")
+
+        # Invariant 5: edit a deep copy of the historical IR only.
+        ir = SkillIR.model_validate(attempt.skillIR).model_copy(deep=True)
+        cleaned = new_description.strip()
+        if not cleaned:
+            raise ValueError("优化后的描述不能为空。")
+        ir.skill.description = cleaned
+        final_root = self.settings.artifact_root / generation.id / "final" / "package"
+        metadata_root = self.settings.artifact_root / generation.id / "final" / "metadata"
+        if not final_root.exists():
+            raise ValueError("找不到最终包目录。")
+
+        skill_dir = final_root / ir.skill.name
+        skill_md_path = skill_dir / "SKILL.md"
+        if not skill_md_path.exists():
+            raise ValueError("找不到最终 SKILL.md。")
+        # Re-render the full SKILL.md from the mutated IR (frontmatter + body
+        # stay consistent; description only affects frontmatter today, but using
+        # render_skill_md_text keeps this robust to future renderer changes).
+        skill_md_path.write_text(
+            render_skill_md_text(ir), encoding="utf-8"
+        )
+        generation.skillMd = skill_md_path.read_text(encoding="utf-8")
+
+        # Invariant 1: re-validate the rewritten package.
+        brief = self._brief(generation)
+        spec_entry = self._spec_entry_for_revision(generation, attempt.skillSpecRevision)
+        attempt_spec = spec_entry.spec if spec_entry else None
+        validation_items, _issues, _score = evaluate_validation(
+            final_root, ir, brief, attempt_spec
+        )
+        if blocking_count(validation_items):
+            # Refuse the rewrite; caller keeps the prior (still-valid) package.
+            raise ValueError(
+                "优化后的描述未通过结构校验,已保留原描述: "
+                + "；".join(item.title for item in validation_items if item.level == "blocking")
+            )
+
+        # Invariant 2: re-zip and re-stamp artifactSha256.
+        score_label = round(generation.qualityReport.overallScore or 0) if generation.qualityReport else 0
+        zip_name = (
+            f"{ir.skill.name}-low-score-{score_label}.zip"
+            if generation.status == "degraded"
+            else f"{ir.skill.name}-package.zip"
+        )
+        zip_path = self.settings.artifact_root / generation.id / zip_name
+        create_zip(final_root, zip_path)
+
+        # Invariant 3: rebuild downloadInfo.
+        generation.downloadInfo = build_download_info(
+            zip_path=zip_path,
+            package_name=zip_name,
+            platforms=[PLATFORM_LABELS[target] for target in ir.platforms.targets],
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        generation.artifactSha256 = sha256_file(zip_path)
+        generation.artifactDir = str(final_root.parent)
+        generation.zipPath = str(zip_path)
+
+        # Invariant 4: re-write manifest with a dedicated optimization section.
+        write_validation_report(metadata_root, validation_items)
+        write_manifest(
+            metadata_root,
+            ir,
+            validation_items,
+            quality_report=generation.qualityReport,
+            selection_reason=generation.finalSelectionReason,
+            skill_spec=attempt_spec,
+            skill_spec_sha256=spec_entry.sha256 if spec_entry else None,
+            package_root=final_root,
+            description_optimization=optimization_provenance,
+        )
+        return self.storage.save_generation(generation)
+
     def _refresh_best_attempt(self, generation: GenerationResult) -> None:
         attempts = self.storage.list_attempts(generation.id)
         reports = {
@@ -1106,6 +1223,8 @@ class QualityOrchestrator:
             "activation-evaluation": app_settings.defaultValidateProvider,
             "implementation-evaluation": app_settings.defaultValidateProvider,
             "validation-explanation": app_settings.defaultValidateProvider,
+            "trigger-evaluation": app_settings.defaultTriggerEvalProvider,
+            "task-evaluation": app_settings.defaultTaskEvalProvider,
         }.get(role, "")
         if preferred:
             provider = self.storage.get_provider(preferred)
@@ -1133,8 +1252,20 @@ class QualityOrchestrator:
                 for provider in self.storage.list_providers()
                 if provider.enabled and "validation-explanation" in provider.roles
             )
+        # Trigger-evaluation and task-evaluation judge roles fall back to any
+        # validation-explanation provider first, then generation, mirroring the
+        # activation/implementation eval fallback above.
+        if role in {"trigger-evaluation", "task-evaluation"}:
+            candidates.extend(
+                provider
+                for provider in self.storage.list_providers()
+                if provider.enabled and "validation-explanation" in provider.roles
+            )
         if role == "repair" or (
             role in {"activation-evaluation", "implementation-evaluation"}
+            and not candidates
+        ) or (
+            role in {"trigger-evaluation", "task-evaluation"}
             and not candidates
         ):
             candidates.extend(

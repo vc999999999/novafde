@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { getDiagnosticMetrics, listErrorPatterns, listRules } from '../api';
 import PageHeader from '../components/PageHeader';
+import TriggerEvalSetManager from '../components/TriggerEvalSetManager';
 import type { DiagnosticMetrics, ErrorPattern, QualityRule } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -142,6 +143,58 @@ export default function RulesPage() {
               </div>
             </div>
           )}
+
+          {metrics.triggerOptimization?.runCount > 0 && (
+            <div className="mt-5">
+              <h2 className="mb-3 text-[length:var(--text-md)] font-semibold text-accent">
+                触发描述优化统计
+              </h2>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                {[
+                  ['优化次数', metrics.triggerOptimization.runCount],
+                  ['完成次数', metrics.triggerOptimization.completedCount],
+                  ['CLI 真测', metrics.triggerOptimization.cliDetectionCount],
+                  ['Judge 代理', metrics.triggerOptimization.judgeDetectionCount],
+                ].map(([label, value]) => (
+                  <Card key={label} className={cn(PANEL_CARD_CLASS, 'p-3')}>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p data-numeric className="mt-1 font-mono text-base font-semibold">{value}</p>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {metrics.taskAB?.runCount > 0 && (
+            <div className="mt-5">
+              <h2 className="mb-3 text-[length:var(--text-md)] font-semibold text-accent">
+                基线对照统计
+              </h2>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                {[
+                  ['评测次数', metrics.taskAB.runCount],
+                  ['完成次数', metrics.taskAB.completedCount],
+                  ['Skill 胜', metrics.taskAB.withSkillWins],
+                  ['基线胜', metrics.taskAB.baselineWins],
+                  ['Skill 胜率', `${Math.round(metrics.taskAB.withSkillWinRate * 100)}%`],
+                ].map(([label, value]) => (
+                  <Card key={label} className={cn(PANEL_CARD_CLASS, 'p-3')}>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p data-numeric className="mt-1 font-mono text-base font-semibold">{value}</p>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!loading && (
+        <section className="mb-6">
+          <h2 className="mb-3 text-[length:var(--text-md)] font-semibold text-accent">
+            触发评测集
+          </h2>
+          <TriggerEvalSetManager mode="manage" />
         </section>
       )}
 

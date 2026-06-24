@@ -27,6 +27,12 @@ from app.prompts import (
     QUALITY_PROMPT_VERSION,
     REPAIR_INSTRUCTIONS,
     REPAIR_PROMPT_VERSION,
+    TASK_AB_GRADER_INSTRUCTIONS,
+    TASK_AB_GRADER_PROMPT_VERSION,
+    TRIGGER_IMPROVE_INSTRUCTIONS,
+    TRIGGER_IMPROVE_PROMPT_VERSION,
+    TRIGGER_JUDGE_INSTRUCTIONS,
+    TRIGGER_JUDGE_PROMPT_VERSION,
     WORKFLOW_INSTRUCTIONS,
     WORKFLOW_PROMPT_VERSION,
 )
@@ -35,6 +41,19 @@ from app.staged_generation import (
     KnowledgeGenerationResult,
     QualityGenerationResult,
     WorkflowGenerationResult,
+)
+from app.models import (
+    AgentCallMetadata,
+    JudgeEvaluation,
+    ModelProviderConfig,
+    QualityIssue,
+    RepairAgentResult,
+    SkillBrief,
+    SkillIR,
+    SkillSpec,
+    TaskABVerdictModel,
+    TriggerDescriptionProposal,
+    TriggerJudgeDecision,
 )
 
 
@@ -113,6 +132,35 @@ class SkillAgentRuntime(Protocol):
         file_paths: list[str],
         provider: ModelProviderConfig,
     ) -> tuple[JudgeEvaluation, AgentCallMetadata]:
+        ...
+
+    def judge_trigger(
+        self,
+        candidate_name: str,
+        candidate_description: str,
+        distractors: list[dict[str, str]],
+        user_query: str,
+        provider: ModelProviderConfig,
+    ) -> tuple[TriggerJudgeDecision, AgentCallMetadata]:
+        ...
+
+    def improve_trigger_description(
+        self,
+        skill_name: str,
+        skill_overview: str,
+        current_description: str,
+        eval_results: list[dict],
+        provider: ModelProviderConfig,
+    ) -> tuple[TriggerDescriptionProposal, AgentCallMetadata]:
+        ...
+
+    def grade_task_ab(
+        self,
+        prompt: str,
+        with_skill_output: str,
+        baseline_output: str,
+        provider: ModelProviderConfig,
+    ) -> tuple[TaskABVerdictModel, AgentCallMetadata]:
         ...
 
 
@@ -308,6 +356,73 @@ class PydanticSkillAgents:
             prompt_version=IMPLEMENTATION_PROMPT_VERSION,
         )
         return _coerce_dimension(evaluation, "implementation"), metadata
+
+    def judge_trigger(
+        self,
+        candidate_name: str,
+        candidate_description: str,
+        distractors: list[dict[str, str]],
+        user_query: str,
+        provider: ModelProviderConfig,
+    ) -> tuple[TriggerJudgeDecision, AgentCallMetadata]:
+        skills = [{"skillName": candidate_name, "description": candidate_description}]
+        skills.extend(
+            {"skillName": d.get("name", ""), "description": d.get("description", "")}
+            for d in distractors
+        )
+        payload = {"availableSkills": skills, "query": user_query}
+        return self.runtime.run_structured(
+            provider=provider,
+            role="trigger-evaluation",
+            instructions=TRIGGER_JUDGE_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=TriggerJudgeDecision,
+            prompt_version=TRIGGER_JUDGE_PROMPT_VERSION,
+        )
+
+    def improve_trigger_description(
+        self,
+        skill_name: str,
+        skill_overview: str,
+        current_description: str,
+        eval_results: list[dict],
+        provider: ModelProviderConfig,
+    ) -> tuple[TriggerDescriptionProposal, AgentCallMetadata]:
+        payload = {
+            "skillName": skill_name,
+            "skillOverview": skill_overview,
+            "currentDescription": current_description,
+            "evalResults": eval_results,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="trigger-evaluation",
+            instructions=TRIGGER_IMPROVE_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=TriggerDescriptionProposal,
+            prompt_version=TRIGGER_IMPROVE_PROMPT_VERSION,
+        )
+
+    def grade_task_ab(
+        self,
+        prompt: str,
+        with_skill_output: str,
+        baseline_output: str,
+        provider: ModelProviderConfig,
+    ) -> tuple[TaskABVerdictModel, AgentCallMetadata]:
+        payload = {
+            "prompt": prompt,
+            "withSkill": with_skill_output,
+            "baseline": baseline_output,
+        }
+        return self.runtime.run_structured(
+            provider=provider,
+            role="task-evaluation",
+            instructions=TASK_AB_GRADER_INSTRUCTIONS,
+            prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            output_type=TaskABVerdictModel,
+            prompt_version=TASK_AB_GRADER_PROMPT_VERSION,
+        )
 
 
 def _coerce_dimension(

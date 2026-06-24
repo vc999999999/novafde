@@ -49,6 +49,9 @@ const emptyProvider = (protocol: ProviderProtocol = 'anthropic'): ModelProviderC
     'repair',
     'activation-evaluation',
     'implementation-evaluation',
+    'validation-explanation',
+    'trigger-evaluation',
+    'task-evaluation',
   ],
   timeoutMs: 120000,
   retries: 2,
@@ -426,6 +429,8 @@ export default function SettingsPage() {
   const [defaultGenerateProvider, setDefaultGenerateProvider] = useState('');
   const [defaultRepairProvider, setDefaultRepairProvider] = useState('');
   const [defaultValidateProvider, setDefaultValidateProvider] = useState('');
+  const [defaultTriggerEvalProvider, setDefaultTriggerEvalProvider] = useState('');
+  const [defaultTaskEvalProvider, setDefaultTaskEvalProvider] = useState('');
   const [blockOnMissingConfig, setBlockOnMissingConfig] = useState(true);
   const [testResults, setTestResults] = useState<Record<string, ConnectionTestResult>>({});
   const [loading, setLoading] = useState(true);
@@ -451,6 +456,18 @@ export default function SettingsPage() {
       || provider.roles.includes('validation-explanation')),
     [enabledProviders],
   );
+  const triggerEvalProviders = useMemo(
+    () => enabledProviders.filter((provider) =>
+      provider.roles.includes('trigger-evaluation')
+      || provider.roles.includes('validation-explanation')),
+    [enabledProviders],
+  );
+  const taskEvalProviders = useMemo(
+    () => enabledProviders.filter((provider) =>
+      provider.roles.includes('task-evaluation')
+      || provider.roles.includes('validation-explanation')),
+    [enabledProviders],
+  );
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -466,6 +483,8 @@ export default function SettingsPage() {
         setDefaultGenerateProvider(loadedSettings.defaultGenerateProvider);
         setDefaultRepairProvider(loadedSettings.defaultRepairProvider);
         setDefaultValidateProvider(loadedSettings.defaultValidateProvider);
+        setDefaultTriggerEvalProvider(loadedSettings.defaultTriggerEvalProvider);
+        setDefaultTaskEvalProvider(loadedSettings.defaultTaskEvalProvider);
         setBlockOnMissingConfig(loadedSettings.blockOnMissingConfig);
       }
     } catch (err) {
@@ -502,9 +521,11 @@ export default function SettingsPage() {
       defaultGenerateProvider,
       defaultRepairProvider,
       defaultValidateProvider,
+      defaultTriggerEvalProvider,
+      defaultTaskEvalProvider,
       blockOnMissingConfig,
     });
-  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, blockOnMissingConfig, debouncedSaveSettings]);
+  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, defaultTriggerEvalProvider, defaultTaskEvalProvider, blockOnMissingConfig, debouncedSaveSettings]);
 
   // Auto-select first provider with the matching role if current selection is invalid
   useEffect(() => {
@@ -518,7 +539,13 @@ export default function SettingsPage() {
     if (!validateProviders.some((provider) => provider.id === defaultValidateProvider)) {
       setDefaultValidateProvider(validateProviders[0]?.id ?? '');
     }
-  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, generationProviders, repairProviders, validateProviders]);
+    if (!triggerEvalProviders.some((provider) => provider.id === defaultTriggerEvalProvider)) {
+      setDefaultTriggerEvalProvider(triggerEvalProviders[0]?.id ?? '');
+    }
+    if (!taskEvalProviders.some((provider) => provider.id === defaultTaskEvalProvider)) {
+      setDefaultTaskEvalProvider(taskEvalProviders[0]?.id ?? '');
+    }
+  }, [defaultGenerateProvider, defaultRepairProvider, defaultValidateProvider, defaultTriggerEvalProvider, defaultTaskEvalProvider, generationProviders, repairProviders, validateProviders, triggerEvalProviders, taskEvalProviders]);
 
   const persistedEditingProvider = Boolean(editingProvider && providers.some((provider) => provider.id === editingProvider.id));
 
@@ -724,6 +751,32 @@ export default function SettingsPage() {
                 ))}
                 {validateProviders.length === 0 && <option value="">无具备评测角色的 Provider</option>}
               </NativeSelect>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">触发评测 Provider / 模型</Label>
+              <NativeSelect
+                value={defaultTriggerEvalProvider}
+                onChange={(event) => setDefaultTriggerEvalProvider(event.target.value)}
+              >
+                {triggerEvalProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
+                ))}
+                {triggerEvalProviders.length === 0 && <option value="">无具备 trigger-evaluation 角色的 Provider</option>}
+              </NativeSelect>
+              <p className="text-[11px] text-tertiary mt-1">用于触发描述优化环中的 judge 代理评测；无可用 Provider 时降级到评测 Provider。</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-muted-foreground">任务评测 Provider / 模型</Label>
+              <NativeSelect
+                value={defaultTaskEvalProvider}
+                onChange={(event) => setDefaultTaskEvalProvider(event.target.value)}
+              >
+                {taskEvalProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{`${provider.name || '未命名'} · ${provider.defaultModel}`}</option>
+                ))}
+                {taskEvalProviders.length === 0 && <option value="">无具备 task-evaluation 角色的 Provider</option>}
+              </NativeSelect>
+              <p className="text-[11px] text-tertiary mt-1">用于基线对照环中的 grader 角色评分；无可用 Provider 时降级到评测 Provider。</p>
             </div>
             <Toggle label="配置缺失时阻止生成" checked={blockOnMissingConfig} onChange={setBlockOnMissingConfig} />
           </div>
