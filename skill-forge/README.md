@@ -5,7 +5,7 @@ React 19 + TypeScript + Vite frontend for the NovaFDE Skill builder.
 The creation flow contains four user-input steps:
 
 1. Basic information
-2. Purpose and process
+2. Purpose and workflow
 3. Knowledge, mandatory rules, pitfalls, and related Skills
 4. Optional free-form supplement
 
