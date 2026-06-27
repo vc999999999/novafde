@@ -46,11 +46,6 @@ tmp/
 .DS_Store
 Thumbs.db
 
-# Generated
-config/
-backend/.data/
-logs/
-
 # Internal planning and local QA artifacts
 docs/
 backend/tests/
