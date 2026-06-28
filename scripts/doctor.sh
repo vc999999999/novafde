@@ -7,7 +7,7 @@ usage() {
   cat <<'EOF'
 Usage: sh scripts/doctor.sh
 
-Checks Python, Node, backend imports, frontend package metadata, local data
+Checks Python, Node.js/npm, backend imports, frontend package metadata, local data
 directories, and Provider config presence. Does not print credential values.
 EOF
 }
