@@ -16,7 +16,7 @@ with environment variables:
   SKILLFORGE_PROVIDER_KEY_ENV
 
 The script writes config/providers.local.json. Add the key from the local
-Provider settings screen so it is stored in the system keychain or encrypted
+provider settings screen so it is stored in the system keychain or encrypted
 local secret store.
 EOF
 }
