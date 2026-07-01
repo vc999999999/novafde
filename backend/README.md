@@ -5,7 +5,7 @@ Local-only FastAPI backend for the PydanticAI quality loop.
 ## Run
 
 ```bash
-.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --reload
+.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
 ```
 
 Production storage is SQLite only. Provider credentials use the system keychain
