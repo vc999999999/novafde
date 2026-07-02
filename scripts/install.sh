@@ -8,7 +8,7 @@ usage() {
 Usage: sh scripts/install.sh
 
 Checks local Python and Node runtimes, creates a Python virtual environment,
-installs backend/frontend dependencies and initializes local directories.
+installs backend and frontend dependencies and initializes local directories.
 EOF
 }
 
