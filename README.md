@@ -237,4 +237,4 @@ Model quality depends on the provider you configure. The deterministic validator
 
 MIT
 
-> Last maintained: 2026-07-05
+> Last maintained: 2026-07-06
